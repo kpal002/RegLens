@@ -118,7 +118,7 @@ def _ensembl_chrom(chrom: str) -> str:
 
 
 def _distance(pos: int, start: int, end: int) -> int:
-    """bp distance from a 1-based position to a [start, end] interval (0 if inside)."""
+    """Distance in bp from a 1-based position to a [start, end] interval (0 if inside)."""
     if start <= pos <= end:
         return 0
     return min(abs(pos - start), abs(pos - end))
