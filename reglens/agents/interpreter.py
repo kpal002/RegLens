@@ -56,6 +56,17 @@ Hard rules:
 
 Respond ONLY with the requested JSON object."""
 
+# Appended to the system prompt on the prompted-JSON fallback path (used when the
+# schema-constrained output format isn't accepted by the model/API).
+_PROMPTED_JSON_SUFFIX = """
+
+Return ONLY a single JSON object (no prose, no markdown fences) with exactly these
+keys: "mechanism" (string), "direction" (one of "increases_accessibility",
+"decreases_accessibility", "unclear"), "tf" (string, "" if none), "gene" (string, ""
+if none), "trait" (string, "" if none), "celltype" (string, "" if none), "confidence"
+(one of "high", "medium", "low"), "caveats" (array of strings), "citations" (array of
+PMID strings drawn only from the bundle)."""
+
 # JSON schema constraining the model's output (structured outputs).
 _OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -68,10 +79,12 @@ _OUTPUT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "enum": ["increases_accessibility", "decreases_accessibility", "unclear"],
         },
-        "tf": {"type": ["string", "null"], "description": "Implicated TF, or null."},
-        "gene": {"type": ["string", "null"], "description": "Likely target gene, or null."},
-        "trait": {"type": ["string", "null"], "description": "Associated trait, or null."},
-        "celltype": {"type": ["string", "null"], "description": "Cell-type context, or null."},
+        # Plain strings (empty = unknown) rather than nullable unions — some
+        # json_schema validators reject type arrays; "" is mapped to None on parse.
+        "tf": {"type": "string", "description": "Implicated TF; empty string if none."},
+        "gene": {"type": "string", "description": "Likely target gene; empty if none."},
+        "trait": {"type": "string", "description": "Associated trait; empty if none."},
+        "celltype": {"type": "string", "description": "Cell-type context; empty if none."},
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
         "caveats": {"type": "array", "items": {"type": "string"}},
         "citations": {
@@ -160,51 +173,121 @@ def _validate_citations(citations: list[str], bundle: EvidenceBundle) -> list[st
     return [c for c in citations if c in allowed]
 
 
-class ClaudeInterpreter:
-    """Real interpreter backed by the Anthropic Messages API (structured output).
+def _extract_json(text: str) -> dict[str, Any]:
+    """Parse a JSON object from model text, tolerating markdown fences/preamble.
 
-    Sends the evidence bundle as JSON to Claude and constrains the reply to
-    :data:`_OUTPUT_SCHEMA`. The ``anthropic`` SDK is imported lazily so importing
-    RegLens never requires it (install the ``agents`` extra) and never needs an API
-    key unless this interpreter is actually used.
+    Args:
+        text: Raw model output (ideally pure JSON, possibly fenced).
+
+    Returns:
+        The parsed object.
+
+    Raises:
+        ValueError: If no JSON object can be located.
+    """
+    stripped = text.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        # Fall back to the outermost {...} span (handles ```json fences / preamble).
+        start, end = stripped.find("{"), stripped.rfind("}")
+        if start == -1 or end <= start:
+            raise ValueError(f"No JSON object found in model output: {text[:200]!r}") from None
+        return json.loads(stripped[start : end + 1])
+
+
+def _is_structured_unsupported(exc: Exception) -> bool:
+    """Whether ``exc`` indicates the schema-constrained output format was rejected.
+
+    Triggers the prompted-JSON fallback for either a client-side ``TypeError`` (SDK
+    doesn't accept ``output_config``) or an API error mentioning the output format.
+    """
+    if isinstance(exc, TypeError):
+        return True
+    blob = str(exc).lower()
+    return any(k in blob for k in ("output_config", "json_schema", "output format", "format"))
+
+
+class ClaudeInterpreter:
+    """Real interpreter backed by the Anthropic Messages API.
+
+    Sends the evidence bundle as JSON to Claude and, by default, constrains the reply
+    to :data:`_OUTPUT_SCHEMA` via ``output_config``. If schema-constrained output
+    isn't accepted (older/unsupported model or SDK), it falls back to prompting for
+    JSON and parsing it — the citation-validation guard runs either way. The
+    ``anthropic`` SDK is imported lazily; a client may be injected for testing.
     """
 
-    def __init__(self, model: str = DEFAULT_MODEL, max_tokens: int = 8000) -> None:
-        """Initialize the interpreter and construct the Anthropic client.
+    def __init__(
+        self,
+        model: str = DEFAULT_MODEL,
+        max_tokens: int = 8000,
+        client: Any | None = None,
+        use_structured: bool = True,
+    ) -> None:
+        """Initialize the interpreter.
 
         Args:
             model: Anthropic model id (default :data:`DEFAULT_MODEL`).
             max_tokens: Output token ceiling (covers thinking + JSON).
+            client: An Anthropic client to use; if ``None`` one is constructed
+                (requires the ``anthropic`` SDK + credentials).
+            use_structured: Try schema-constrained output first (falls back if not).
 
         Raises:
-            ImportError: If the ``anthropic`` SDK is not installed.
+            ImportError: If ``client`` is ``None`` and the ``anthropic`` SDK is absent.
         """
-        try:
-            import anthropic
-        except ImportError as exc:  # pragma: no cover - env-dependent
-            raise ImportError(
-                "The anthropic SDK is required for ClaudeInterpreter. "
-                "Install it with: pip install 'reglens[agents]'"
-            ) from exc
         self.model = model
         self.max_tokens = max_tokens
-        # Zero-arg client resolves credentials from the environment / ant profile.
-        self._client = anthropic.Anthropic()
+        self.use_structured = use_structured
+        if client is not None:
+            self._client = client
+        else:
+            try:
+                import anthropic
+            except ImportError as exc:  # pragma: no cover - env-dependent
+                raise ImportError(
+                    "The anthropic SDK is required for ClaudeInterpreter. "
+                    "Install it with: pip install 'reglens[agents]'"
+                ) from exc
+            # Zero-arg client resolves credentials from the environment / ant profile.
+            self._client = anthropic.Anthropic()
 
-    def interpret(self, bundle: EvidenceBundle) -> MechanisticInterpretation:  # pragma: no cover
+    def interpret(self, bundle: EvidenceBundle) -> MechanisticInterpretation:
         """See :meth:`Interpreter.interpret` (calls the Anthropic API)."""
         payload = json.dumps(bundle.to_dict(), indent=2)
-        response = self._client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            system=SYSTEM_PROMPT,
-            thinking={"type": "adaptive"},
-            output_config={"format": {"type": "json_schema", "schema": _OUTPUT_SCHEMA}},
-            messages=[{"role": "user", "content": f"EVIDENCE BUNDLE:\n{payload}"}],
-        )
-        text = next((b.text for b in response.content if b.type == "text"), "{}")
-        data = json.loads(text)
+        messages = [{"role": "user", "content": f"EVIDENCE BUNDLE:\n{payload}"}]
+        data = self._complete(messages)
         return _from_payload(data, bundle, model=self.model)
+
+    def _complete(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
+        """Call the model, preferring structured output and degrading gracefully."""
+        if self.use_structured:
+            try:
+                return self._create(messages, structured=True)
+            except Exception as exc:  # noqa: BLE001 - narrow via _is_structured_unsupported
+                if not _is_structured_unsupported(exc):
+                    raise
+                # Remember the downgrade so later calls skip the failing attempt.
+                self.use_structured = False
+        return self._create(messages, structured=False)
+
+    def _create(self, messages: list[dict[str, Any]], structured: bool) -> dict[str, Any]:
+        """Issue one Messages API call and parse the JSON reply."""
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "thinking": {"type": "adaptive"},
+            "messages": messages,
+        }
+        if structured:
+            kwargs["system"] = SYSTEM_PROMPT
+            kwargs["output_config"] = {"format": {"type": "json_schema", "schema": _OUTPUT_SCHEMA}}
+        else:
+            kwargs["system"] = SYSTEM_PROMPT + _PROMPTED_JSON_SUFFIX
+        response = self._client.messages.create(**kwargs)
+        text = next((b.text for b in response.content if getattr(b, "type", None) == "text"), "")
+        return _extract_json(text)
 
 
 class StubInterpreter:
@@ -269,13 +352,17 @@ def _from_payload(
 
     Citations are validated against the bundle so an invented PMID cannot survive.
     """
+    def _clean(value: Any) -> str | None:
+        """Empty strings / falsy → None (the schema uses "" for 'unknown')."""
+        return value or None
+
     return MechanisticInterpretation(
         mechanism=str(data.get("mechanism", "")),
         direction=str(data.get("direction", "unclear")),
-        tf=data.get("tf"),
-        gene=data.get("gene"),
-        trait=data.get("trait"),
-        celltype=data.get("celltype") or bundle.celltype,
+        tf=_clean(data.get("tf")),
+        gene=_clean(data.get("gene")),
+        trait=_clean(data.get("trait")),
+        celltype=_clean(data.get("celltype")) or bundle.celltype,
         confidence=str(data.get("confidence", "low")),
         caveats=list(data.get("caveats", [])),
         citations=_validate_citations(list(data.get("citations", [])), bundle),

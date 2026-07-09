@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from reglens.agents.interpreter import (
+    ClaudeInterpreter,
     Interpreter,
     MechanisticInterpretation,
     StubInterpreter,
+    _extract_json,
     _from_payload,
     _validate_citations,
     build_interpreter,
@@ -101,3 +105,87 @@ def test_interpretation_to_dict_roundtrips():
     interp = MechanisticInterpretation(mechanism="m", direction="unclear", citations=["1"])
     d = interp.to_dict()
     assert d["mechanism"] == "m" and d["citations"] == ["1"]
+
+
+# --- Live-path logic, exercised with a fake Anthropic client -----------------
+
+class _TextBlock:
+    type = "text"
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _Resp:
+    def __init__(self, text: str):
+        self.content = [_TextBlock(text)]
+
+
+class FakeAnthropic:
+    """Mimics anthropic.Anthropic().messages.create; optionally 400s on output_config."""
+
+    def __init__(self, reply: str, fail_on_output_config: bool = False):
+        self.reply = reply
+        self.fail_on_output_config = fail_on_output_config
+        self.calls: list[dict] = []
+        self.messages = self  # so `.messages.create` resolves to self.create
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.fail_on_output_config and "output_config" in kwargs:
+            raise TypeError("unexpected keyword argument 'output_config'")
+        return _Resp(self.reply)
+
+
+_VALID_JSON = (
+    '{"mechanism": "alt G restores a GATA1::TAL1 motif", '
+    '"direction": "increases_accessibility", "tf": "GATA1::TAL1", "gene": "BCL11A", '
+    '"trait": "fetal hemoglobin", "celltype": "", "confidence": "medium", '
+    '"caveats": ["hypothesis"], "citations": ["26375006", "99999999"]}'
+)
+
+
+class TestExtractJson:
+    def test_plain(self):
+        assert _extract_json('{"a": 1}') == {"a": 1}
+
+    def test_fenced(self):
+        assert _extract_json('```json\n{"a": 1}\n```') == {"a": 1}
+
+    def test_preamble(self):
+        assert _extract_json('Here you go:\n{"a": 1}\nDone') == {"a": 1}
+
+    def test_no_json_raises(self):
+        with pytest.raises(ValueError):
+            _extract_json("no json here")
+
+
+class TestClaudeInterpreterLogic:
+    def test_structured_path(self):
+        client = FakeAnthropic(_VALID_JSON)
+        interp = ClaudeInterpreter(client=client).interpret(_rich_bundle())
+        # Used schema-constrained output on the first (only) call.
+        assert "output_config" in client.calls[0]
+        assert client.calls[0]["thinking"] == {"type": "adaptive"}
+        assert interp.tf == "GATA1::TAL1"
+        assert interp.celltype == "K562"  # "" cleaned, falls back to bundle
+        # Invented PMID stripped by the guard even on the live path.
+        assert interp.citations == ["26375006"]
+
+    def test_falls_back_to_prompted_json(self):
+        client = FakeAnthropic(_VALID_JSON, fail_on_output_config=True)
+        ci = ClaudeInterpreter(client=client)
+        interp = ci.interpret(_rich_bundle())
+        # First call tried output_config (raised), second omitted it (prompted).
+        assert "output_config" in client.calls[0]
+        assert "output_config" not in client.calls[1]
+        assert ci.use_structured is False  # downgrade remembered
+        assert interp.gene == "BCL11A" and interp.citations == ["26375006"]
+
+    def test_non_format_error_propagates(self):
+        class Boom(FakeAnthropic):
+            def create(self, **kwargs):
+                raise RuntimeError("rate limited")
+
+        with pytest.raises(RuntimeError, match="rate limited"):
+            ClaudeInterpreter(client=Boom(_VALID_JSON)).interpret(_rich_bundle())
