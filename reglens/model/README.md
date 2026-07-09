@@ -22,6 +22,23 @@ and cross-checks RegLens's wrapper against a manual scoring. Example variant:
 `rs1427407` (chr2:60,495,250 G>T), which disrupts a GATA1 motif in the BCL11A
 erythroid enhancer — the spec's money-shot.
 
+### The money-shot model (notebook default)
+
+The notebook downloads the **K562 ATAC ChromBPNet model from the ChromBPNet
+manuscript** — the same model family used to score red-blood-cell-trait variants,
+so `rs1427407` should show an accessibility drop:
+
+- ENCODE annotation **[ENCSR467RSV](https://www.encodeproject.org/annotations/ENCSR467RSV/)**
+  ("ChromBPNet models trained on ATAC-seq in K562 (ENCSR868FGK)").
+- Models tar **`ENCFF984RAF`** (727 MB, GRCh38, 5 folds):
+  `https://www.encodeproject.org/files/ENCFF984RAF/@@download/ENCFF984RAF.tar.gz`
+- Extract → use one fold's **`chrombpnet_nobias.h5`** (the notebook globs for it).
+
+Manuscript models are also mirrored on Synapse
+([syn59449898](https://www.synapse.org/Synapse:syn59449898/files/)). For a quick
+I/O-contract check with no ENCODE download, any `*_nobias.h5` from
+[Zenodo](https://zenodo.org/records/16295014) works.
+
 ### Confirmed ChromBPNet model contract (kundajelab chrombpnet / variant-scorer)
 
 | Aspect | Value | Why it matters |
