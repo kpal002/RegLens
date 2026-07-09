@@ -19,8 +19,11 @@ pretrained checkpoint and scores one variant on a Colab GPU, to confirm the real
 model behaves as our `KerasChromBPNetBackend` assumes — *before* Thursday's tools
 depend on it. It fetches the 2114 bp window from the UCSC API (no genome download)
 and cross-checks RegLens's wrapper against a manual scoring. Example variant:
-`rs1427407` (chr2:60,495,250 G>T), which disrupts a GATA1 motif in the BCL11A
-erythroid enhancer — the spec's money-shot.
+`rs1427407` (**chr2:60,490,908, hg38; reference `T`, alt `G`**) in the BCL11A +58 kb
+erythroid enhancer — the spec's money-shot. The T allele lowers enhancer activity /
+GATA1 binding and raises HbF (Bauer et al. 2013, *Science*); hg38's reference base
+*is* the T allele, so `T>G` is the honest scoring and a positive Δ is expected. The
+notebook's UCSC ref-check confirms the base before scoring.
 
 ### The money-shot model (notebook default)
 
