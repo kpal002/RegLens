@@ -53,9 +53,20 @@ I/O-contract check with no ENCODE download, any `*_nobias.h5` from
 | Secondary signal | `jsd` = JS distance of softmax'd profiles | Footprint-shape change → motif story. |
 | Note | variant-scorer averages fwd + reverse-complement by default | Our MVP is forward-only; add RC-averaging if AUROC needs it. |
 
-Once you've run the notebook, paste the printed `input_shape` / `output_shape`
-here so the confirmed contract is on record. If anything differs, the notebook's
-final markdown cell lists the exact `KerasChromBPNetBackend` knob to turn.
+### Confirmed on Colab (ENCFF984RAF fold_0, K562 ATAC)
+
+Run on 2026-07-09 with `model.chrombpnet_nobias.fold_0.ENCSR868FGK.h5`:
+
+- **I/O verified:** `input_shape (None, 2114, 4)` → `output_shape [(None, 1000), (None, 1)]`
+  (head order `[profile, counts]`) — matches `KerasChromBPNetBackend` exactly.
+- **Wrapper parity:** RegLens reproduces the manual Δ / JSD to `1e-6`.
+- **Money-shot variant** `rs1427407` (chr2:60,490,908 T>G): ref-check clean;
+  **Δ log-counts = +0.0185** (increase), **profile JSD = 0.0136**. Positive Δ is the
+  expected sign (hg38 ref = the enhancer-lowering T allele). Magnitude is faint on a
+  single fold / forward-only — strengthen for the demo with **5-fold averaging +
+  forward/RC averaging + a percentile-vs-null** (variant-scorer's `active_allele_quantile`).
+
+The interface is confirmed; the remaining work is estimate robustness, not plumbing.
 
 ## Plan: train our own model (Friday, in parallel)
 
