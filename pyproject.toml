@@ -42,6 +42,10 @@ reglens = "reglens.cli:app"
 [tool.setuptools.packages.find]
 include = ["reglens*"]
 
+[tool.setuptools.package-data]
+# Ship the bundled demo genome and JASPAR motif subset inside the wheel.
+reglens = ["data/**/*.fa", "data/**/*.jaspar", "data/**/*.md", "model/*.ipynb"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
