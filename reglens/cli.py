@@ -11,11 +11,14 @@ reasoning layer, and the cited report on top of this entry point.
 
 from __future__ import annotations
 
+import json as _json
 from pathlib import Path
 
 import typer
 
 from reglens.genome import DEFAULT_WINDOW_LENGTH, Variant
+from reglens.orchestrator import analyze_variant
+from reglens.report.render import render_text
 from reglens.tools.chrombpnet_score import ChromBPNetScorer, VariantScore, load_backend
 
 app = typer.Typer(
@@ -104,6 +107,54 @@ def demo() -> None:
     )
     result = scorer.score_variant(parsed, genome_path=DEMO_GENOME, celltype="demo-cell")
     _render(result)
+
+
+@app.command()
+def analyze(
+    variant: str = typer.Argument(
+        ..., help="Variant as chr:pos:ref>alt (hg38), e.g. chr2:60490908:T>G"
+    ),
+    rsid: str = typer.Option(
+        None, "--rsid", "-r", help="dbSNP rsID; enables GTEx eQTL, GWAS, and literature lookups."
+    ),
+    celltype: str = typer.Option(
+        None, "--celltype", "-c", help="Cell-type / model context label."
+    ),
+    genome: Path = typer.Option(
+        None, "--genome", "-g", help="hg38 FASTA (for ChromBPNet + motif scan). $REGLENS_GENOME."
+    ),
+    model: Path = typer.Option(
+        None, "--model", "-m", help="Pretrained ChromBPNet model; omit for offline stub."
+    ),
+    window: int = typer.Option(DEFAULT_WINDOW_LENGTH, "--window", "-w", help="Window length (bp)."),
+    as_json: bool = typer.Option(False, "--json", help="Emit the evidence bundle as JSON."),
+) -> None:
+    """Run the full deterministic tool layer and print the evidence bundle.
+
+    Gathers ChromBPNet Δ-accessibility, TF-motif effect, regulatory context, gene
+    target + eQTL, GWAS trait link, and Europe PMC citations for the variant. This
+    is the evidence the reasoning layer will interpret (interpretation is not yet
+    wired in).
+    """
+    parsed = Variant.parse(variant)
+    scorer = None
+    if genome is not None:
+        backend = load_backend(str(model) if model else None)
+        scorer = ChromBPNetScorer(
+            backend, window_length=window, model_name=model.name if model else "stub(offline)"
+        )
+    bundle = analyze_variant(
+        parsed,
+        rsid=rsid,
+        celltype=celltype,
+        genome_path=str(genome) if genome else None,
+        scorer=scorer,
+        window_length=window,
+    )
+    if as_json:
+        typer.echo(_json.dumps(bundle.to_dict(), indent=2))
+    else:
+        typer.echo(render_text(bundle))
 
 
 if __name__ == "__main__":
