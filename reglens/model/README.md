@@ -8,8 +8,34 @@ notebooks + loaders for training **our own** ChromBPNet model.
 
 **Inference-only, pretrained-first.** Variant scoring currently runs through
 `reglens/tools/chrombpnet_score.py`, which loads a *pretrained* ChromBPNet Keras
-model (or an offline stub) and computes ref-vs-alt Δ log-counts. **No training has
-been started, and training is never on the critical path** (Golden Rule #1).
+model (or an offline stub) and computes ref-vs-alt Δ log-counts **and** the
+profile-shape change (Jensen–Shannon distance). **No training has been started,
+and training is never on the critical path** (Golden Rule #1).
+
+## Parallel-track de-risk (do this on Colab today)
+
+`colab_verify_chrombpnet.ipynb` is a self-contained notebook that loads a **real**
+pretrained checkpoint and scores one variant on a Colab GPU, to confirm the real
+model behaves as our `KerasChromBPNetBackend` assumes — *before* Thursday's tools
+depend on it. It fetches the 2114 bp window from the UCSC API (no genome download)
+and cross-checks RegLens's wrapper against a manual scoring. Example variant:
+`rs1427407` (chr2:60,495,250 G>T), which disrupts a GATA1 motif in the BCL11A
+erythroid enhancer — the spec's money-shot.
+
+### Confirmed ChromBPNet model contract (kundajelab chrombpnet / variant-scorer)
+
+| Aspect | Value | Why it matters |
+|---|---|---|
+| Model file | **`chrombpnet_nobias.h5`** (Tn5 bias-corrected) | The raw `chrombpnet.h5` / `bias_model_scaled.h5` give a garbage Δ. |
+| Input | one-hot **`(N, 2114, 4)`** | Must match `window_length`. |
+| Output heads | **`[profile_logits (N, ~1000), logcount (N, 1)]`** | Order assumed by `KerasChromBPNetBackend`; swap indices if a model differs. |
+| Primary signal | `logfc` = Δ log-counts (alt − ref) | Total-accessibility change. |
+| Secondary signal | `jsd` = JS distance of softmax'd profiles | Footprint-shape change → motif story. |
+| Note | variant-scorer averages fwd + reverse-complement by default | Our MVP is forward-only; add RC-averaging if AUROC needs it. |
+
+Once you've run the notebook, paste the printed `input_shape` / `output_shape`
+here so the confirmed contract is on record. If anything differs, the notebook's
+final markdown cell lists the exact `KerasChromBPNetBackend` knob to turn.
 
 ## Plan: train our own model (Friday, in parallel)
 

@@ -46,6 +46,8 @@ def _render(score: VariantScore) -> None:
     typer.echo(f"  Δ log-counts   : {score.delta_log_counts:+.4f}")
     typer.echo(f"  direction      : {score.direction} accessibility")
     typer.echo(f"  effect size    : {score.effect_size:.4f}")
+    jsd = f"{score.profile_jsd:.4f}" if score.profile_jsd is not None else "n/a"
+    typer.echo(f"  profile JSD    : {jsd}  (footprint-shape change)")
     typer.echo("─" * 64)
 
 
