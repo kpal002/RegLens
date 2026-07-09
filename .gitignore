@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Genome / model artifacts (large, not committed)
+*.fa.fai
+*.fai
+*.h5
+*.keras
+*.pb
+saved_model/
+data/genomes/
+data/models/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

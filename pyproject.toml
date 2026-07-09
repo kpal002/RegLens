@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reglens"
+version = "0.0.1"
+description = "Agentic mechanistic interpreter for noncoding regulatory variants"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "RegLens contributors" }]
+keywords = ["genomics", "regulatory-variants", "chrombpnet", "interpretability", "agents"]
+
+# Runtime dependencies.
+#
+# Kept intentionally lean for the Wednesday milestone. `pyfaidx` is the only
+# hard runtime dep needed for genome plumbing; `typer` powers the CLI. Heavy
+# ML backends (tensorflow / chrombpnet) are declared as optional extras so the
+# core package installs and its tests run offline on CPU without pulling GPU
+# stacks.
+dependencies = [
+    "pyfaidx>=0.7",
+    "typer>=0.9",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# The pretrained-ChromBPNet inference backend. Optional so the deterministic
+# core (and its stub-model tests) run without TensorFlow installed.
+chrombpnet = [
+    "tensorflow>=2.12",
+]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+reglens = "reglens.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["reglens*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# pycodestyle (E), pyflakes (F), isort (I), pyupgrade (UP), bugbear (B),
+# pydocstyle (D) so we keep the Google-style-docstring rule enforced.
+select = ["E", "F", "I", "UP", "B", "D"]
+ignore = [
+    "D203",  # 1 blank line before class docstring (conflicts with D211)
+    "D213",  # multi-line summary on second line (conflicts with D212)
+    "B008",  # function call in default arg — the idiomatic Typer Option/Argument pattern
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests don't need module/function docstrings.
+"tests/*" = ["D"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
