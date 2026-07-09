@@ -127,14 +127,20 @@ def analyze(
         None, "--model", "-m", help="Pretrained ChromBPNet model; omit for offline stub."
     ),
     window: int = typer.Option(DEFAULT_WINDOW_LENGTH, "--window", "-w", help="Window length (bp)."),
+    interpret: bool = typer.Option(
+        False, "--interpret", help="Add a cited mechanistic interpretation (single agent)."
+    ),
+    offline: bool = typer.Option(
+        False, "--offline", help="Force the offline stub interpreter (no Anthropic API)."
+    ),
     as_json: bool = typer.Option(False, "--json", help="Emit the evidence bundle as JSON."),
 ) -> None:
-    """Run the full deterministic tool layer and print the evidence bundle.
+    """Run the full deterministic tool layer (and optionally interpret it).
 
     Gathers ChromBPNet Δ-accessibility, TF-motif effect, regulatory context, gene
-    target + eQTL, GWAS trait link, and Europe PMC citations for the variant. This
-    is the evidence the reasoning layer will interpret (interpretation is not yet
-    wired in).
+    target + eQTL, GWAS trait link, and Europe PMC citations for the variant. With
+    ``--interpret``, the single-agent reasoning layer turns that evidence into a
+    cited mechanistic hypothesis (uses Claude if configured, else the offline stub).
     """
     parsed = Variant.parse(variant)
     scorer = None
@@ -152,9 +158,23 @@ def analyze(
         window_length=window,
     )
     if as_json:
-        typer.echo(_json.dumps(bundle.to_dict(), indent=2))
-    else:
-        typer.echo(render_text(bundle))
+        out = bundle.to_dict()
+        if interpret:
+            from reglens.agents.interpreter import build_interpreter
+
+            interp = build_interpreter(use_claude=not offline).interpret(bundle)
+            out["interpretation"] = interp.to_dict()
+        typer.echo(_json.dumps(out, indent=2))
+        return
+
+    typer.echo(render_text(bundle))
+    if interpret:
+        from reglens.agents.interpreter import build_interpreter
+
+        interpretation = build_interpreter(use_claude=not offline).interpret(bundle)
+        typer.echo("\n── RegLens interpretation " + "─" * 40)
+        typer.echo(interpretation.format())
+        typer.echo("─" * 66)
 
 
 if __name__ == "__main__":
