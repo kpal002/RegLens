@@ -27,3 +27,6 @@ data/models/
 
 # Claude Code local settings
 .claude/
+
+# Local secrets (API keys) — never commit
+.env
