@@ -128,7 +128,10 @@ def analyze(
     ),
     window: int = typer.Option(DEFAULT_WINDOW_LENGTH, "--window", "-w", help="Window length (bp)."),
     interpret: bool = typer.Option(
-        False, "--interpret", help="Add a cited mechanistic interpretation (single agent)."
+        False, "--interpret", help="Add a cited mechanistic interpretation."
+    ),
+    multi_agent: bool = typer.Option(
+        False, "--multi-agent", help="Use the specialists → red-team → adjudicator deliberation."
     ),
     offline: bool = typer.Option(
         False, "--offline", help="Force the offline stub interpreter (no Anthropic API)."
@@ -139,8 +142,9 @@ def analyze(
 
     Gathers ChromBPNet Δ-accessibility, TF-motif effect, regulatory context, gene
     target + eQTL, GWAS trait link, and Europe PMC citations for the variant. With
-    ``--interpret``, the single-agent reasoning layer turns that evidence into a
-    cited mechanistic hypothesis (uses Claude if configured, else the offline stub).
+    ``--interpret``, the reasoning layer turns that evidence into a cited mechanistic
+    hypothesis; add ``--multi-agent`` for the specialists → red-team → adjudicator
+    deliberation (uses Claude if configured, else the offline stub).
     """
     parsed = Variant.parse(variant)
     scorer = None
@@ -157,24 +161,39 @@ def analyze(
         scorer=scorer,
         window_length=window,
     )
+
+    # A multi-agent run exposes the full deliberation transcript; single-agent just
+    # the interpretation. Both satisfy the same Interpreter protocol.
+    deliberation = None
+    interpretation = None
+    if interpret:
+        from reglens.agents.interpreter import build_interpreter
+
+        interp_agent = build_interpreter(use_claude=not offline, multi_agent=multi_agent)
+        if multi_agent and hasattr(interp_agent, "deliberate"):
+            deliberation = interp_agent.deliberate(bundle)
+            interpretation = deliberation.interpretation
+        else:
+            interpretation = interp_agent.interpret(bundle)
+
     if as_json:
         out = bundle.to_dict()
-        if interpret:
-            from reglens.agents.interpreter import build_interpreter
-
-            interp = build_interpreter(use_claude=not offline).interpret(bundle)
-            out["interpretation"] = interp.to_dict()
+        if deliberation is not None:
+            out["deliberation"] = deliberation.to_dict()
+        elif interpretation is not None:
+            out["interpretation"] = interpretation.to_dict()
         typer.echo(_json.dumps(out, indent=2))
         return
 
     typer.echo(render_text(bundle))
-    if interpret:
-        from reglens.agents.interpreter import build_interpreter
+    if deliberation is not None:
+        from reglens.report.render import render_deliberation
 
-        interpretation = build_interpreter(use_claude=not offline).interpret(bundle)
-        typer.echo("\n── RegLens interpretation " + "─" * 40)
-        typer.echo(interpretation.format())
-        typer.echo("─" * 66)
+        typer.echo("\n" + render_deliberation(deliberation))
+    elif interpretation is not None:
+        from reglens.report.render import render_interpretation
+
+        typer.echo("\n" + render_interpretation(interpretation))
 
 
 if __name__ == "__main__":

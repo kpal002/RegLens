@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
+from reglens.agents._llm import extract_json as _extract_json
 from reglens.agents.interpreter import (
     ClaudeInterpreter,
     Interpreter,
     MechanisticInterpretation,
     StubInterpreter,
-    _extract_json,
     _from_payload,
     _validate_citations,
     build_interpreter,

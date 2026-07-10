@@ -20,6 +20,7 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from reglens.agents._llm import StructuredCaller
 from reglens.report.schema import EvidenceBundle
 
 # Default model for interpretation. Opus 4.8 is the current most-capable model;
@@ -173,49 +174,13 @@ def _validate_citations(citations: list[str], bundle: EvidenceBundle) -> list[st
     return [c for c in citations if c in allowed]
 
 
-def _extract_json(text: str) -> dict[str, Any]:
-    """Parse a JSON object from model text, tolerating markdown fences/preamble.
-
-    Args:
-        text: Raw model output (ideally pure JSON, possibly fenced).
-
-    Returns:
-        The parsed object.
-
-    Raises:
-        ValueError: If no JSON object can be located.
-    """
-    stripped = text.strip()
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        # Fall back to the outermost {...} span (handles ```json fences / preamble).
-        start, end = stripped.find("{"), stripped.rfind("}")
-        if start == -1 or end <= start:
-            raise ValueError(f"No JSON object found in model output: {text[:200]!r}") from None
-        return json.loads(stripped[start : end + 1])
-
-
-def _is_structured_unsupported(exc: Exception) -> bool:
-    """Whether ``exc`` indicates the schema-constrained output format was rejected.
-
-    Triggers the prompted-JSON fallback for either a client-side ``TypeError`` (SDK
-    doesn't accept ``output_config``) or an API error mentioning the output format.
-    """
-    if isinstance(exc, TypeError):
-        return True
-    blob = str(exc).lower()
-    return any(k in blob for k in ("output_config", "json_schema", "output format", "format"))
-
-
 class ClaudeInterpreter:
-    """Real interpreter backed by the Anthropic Messages API.
+    """Single-agent interpreter backed by the Anthropic Messages API.
 
-    Sends the evidence bundle as JSON to Claude and, by default, constrains the reply
-    to :data:`_OUTPUT_SCHEMA` via ``output_config``. If schema-constrained output
-    isn't accepted (older/unsupported model or SDK), it falls back to prompting for
-    JSON and parsing it — the citation-validation guard runs either way. The
-    ``anthropic`` SDK is imported lazily; a client may be injected for testing.
+    Sends the evidence bundle as JSON to Claude and constrains the reply to
+    :data:`_OUTPUT_SCHEMA` (with a prompted-JSON fallback via
+    :class:`~reglens.agents._llm.StructuredCaller`). The citation-validation guard
+    runs on the parsed result. A client may be injected for testing.
     """
 
     def __init__(
@@ -230,64 +195,26 @@ class ClaudeInterpreter:
         Args:
             model: Anthropic model id (default :data:`DEFAULT_MODEL`).
             max_tokens: Output token ceiling (covers thinking + JSON).
-            client: An Anthropic client to use; if ``None`` one is constructed
-                (requires the ``anthropic`` SDK + credentials).
+            client: An Anthropic client to use; if ``None`` one is constructed.
             use_structured: Try schema-constrained output first (falls back if not).
-
-        Raises:
-            ImportError: If ``client`` is ``None`` and the ``anthropic`` SDK is absent.
         """
         self.model = model
-        self.max_tokens = max_tokens
-        self.use_structured = use_structured
-        if client is not None:
-            self._client = client
-        else:
-            try:
-                import anthropic
-            except ImportError as exc:  # pragma: no cover - env-dependent
-                raise ImportError(
-                    "The anthropic SDK is required for ClaudeInterpreter. "
-                    "Install it with: pip install 'reglens[agents]'"
-                ) from exc
-            # Zero-arg client resolves credentials from the environment / ant profile.
-            self._client = anthropic.Anthropic()
+        self._caller = StructuredCaller(
+            client=client, model=model, max_tokens=max_tokens, use_structured=use_structured
+        )
+
+    @property
+    def use_structured(self) -> bool:
+        """Whether the schema-constrained path is still in use (False after downgrade)."""
+        return self._caller.use_structured
 
     def interpret(self, bundle: EvidenceBundle) -> MechanisticInterpretation:
         """See :meth:`Interpreter.interpret` (calls the Anthropic API)."""
         payload = json.dumps(bundle.to_dict(), indent=2)
-        messages = [{"role": "user", "content": f"EVIDENCE BUNDLE:\n{payload}"}]
-        data = self._complete(messages)
+        data = self._caller.call(
+            SYSTEM_PROMPT, f"EVIDENCE BUNDLE:\n{payload}", _OUTPUT_SCHEMA, _PROMPTED_JSON_SUFFIX
+        )
         return _from_payload(data, bundle, model=self.model)
-
-    def _complete(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        """Call the model, preferring structured output and degrading gracefully."""
-        if self.use_structured:
-            try:
-                return self._create(messages, structured=True)
-            except Exception as exc:  # noqa: BLE001 - narrow via _is_structured_unsupported
-                if not _is_structured_unsupported(exc):
-                    raise
-                # Remember the downgrade so later calls skip the failing attempt.
-                self.use_structured = False
-        return self._create(messages, structured=False)
-
-    def _create(self, messages: list[dict[str, Any]], structured: bool) -> dict[str, Any]:
-        """Issue one Messages API call and parse the JSON reply."""
-        kwargs: dict[str, Any] = {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "thinking": {"type": "adaptive"},
-            "messages": messages,
-        }
-        if structured:
-            kwargs["system"] = SYSTEM_PROMPT
-            kwargs["output_config"] = {"format": {"type": "json_schema", "schema": _OUTPUT_SCHEMA}}
-        else:
-            kwargs["system"] = SYSTEM_PROMPT + _PROMPTED_JSON_SUFFIX
-        response = self._client.messages.create(**kwargs)
-        text = next((b.text for b in response.content if getattr(b, "type", None) == "text"), "")
-        return _extract_json(text)
 
 
 class StubInterpreter:
@@ -370,19 +297,28 @@ def _from_payload(
     )
 
 
-def build_interpreter(use_claude: bool = True, model: str = DEFAULT_MODEL) -> Interpreter:
-    """Return a :class:`ClaudeInterpreter` if possible, else the offline stub.
+def build_interpreter(
+    use_claude: bool = True, model: str = DEFAULT_MODEL, multi_agent: bool = False
+) -> Interpreter:
+    """Return the appropriate interpreter, falling back to the offline stub.
 
     Args:
-        use_claude: If True, try to build the Claude-backed interpreter; on any
-            failure (missing SDK/credentials) fall back to the stub.
+        use_claude: If True, try to build a Claude-backed interpreter; on any failure
+            (missing SDK/credentials) fall back to the offline stub.
         model: Model id for the Claude interpreter.
+        multi_agent: If True (and ``use_claude``), use the specialists → red-team →
+            adjudicator :class:`~reglens.agents.multi_agent.MultiAgentInterpreter`.
 
     Returns:
         An :class:`Interpreter` implementation.
     """
     if use_claude:
         try:
+            if multi_agent:
+                # Lazy import: multi_agent imports from this module.
+                from reglens.agents.multi_agent import MultiAgentInterpreter
+
+                return MultiAgentInterpreter(model=model)
             return ClaudeInterpreter(model=model)
         except Exception:  # noqa: BLE001 - graceful offline fallback
             return StubInterpreter()
