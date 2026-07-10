@@ -86,27 +86,35 @@ backend = load_backend("encode_models", average_rc=False)   # folds only
 The pure fold/RC aggregation (`aggregate_predictions`, `reverse_complement_onehot`)
 is unit-tested offline; the Keras inference wrapper is exercised on real checkpoints.
 
-## Train our own model → `train_chrombpnet.ipynb`
+## Extensibility track → `train_chrombpnet.ipynb`
 
-`train_chrombpnet.ipynb` is the Colab notebook that trains one ChromBPNet model on
-**K562 ATAC (ENCODE ENCSR868FGK)** by invoking the `chrombpnet pipeline` CLI (we do
-not reimplement the model). It downloads the ENCODE BAM + peaks, hg38 + chrom.sizes,
-the ENCODE blacklist, and a pretrained Tn5 `bias.h5` (reused to skip bias training),
-preps GC-matched nonpeaks + a fold split, runs the pipeline, and shows how to plug the
-resulting `chrombpnet_nobias.h5` straight into `load_backend(...)`.
+**Framing:** we do **not** claim a from-scratch model out-predicts the pretrained
+ENCODE/Corces models (it won't in a few days). `train_chrombpnet.ipynb` demonstrates a
+different, real capability — **RegLens extends to any cell type, including ones with no
+public ChromBPNet model** — by running the standard `chrombpnet pipeline` on that cell
+type's ATAC-seq. The trained `chrombpnet_nobias.h5` drops into RegLens with no code
+changes (`load_backend(...)`).
+
+The notebook demonstrates on **K562 ATAC (ENCODE ENCSR868FGK)** because a *published*
+K562 model exists there, so the pipeline's output can be sanity-checked against a
+known-good model; **to extend to a no-public-model cell type, swap the ENCODE
+accessions** in the config cell. It downloads the ENCODE BAM + peaks, hg38 +
+chrom.sizes, the ENCODE blacklist, and a pretrained Tn5 `bias.h5` (reused to skip bias
+training), preps GC-matched nonpeaks + a fold split, and runs the pipeline.
 
 **Requirements:** GPU runtime (Colab Pro), ~hours/fold (~12 h overnight budget), tens
-of GB disk. This is the **parallel, non-critical-path** ML track — RegLens works on the
-pretrained model regardless of the outcome.
+of GB disk. **The demo and validation run on pretrained models regardless** — this is
+the parallel, non-critical-path track (spec rule #1).
 
 - **Data:** one ENCODE ATAC-seq experiment (a single, well-characterized cell
   type — no genome-wide scope creep), plus the hg38 FASTA. All open data.
 - **Where:** Colab Pro (overnight, ~12 h) or Kaggle free GPU-hours. TF/Keras.
 - **Output:** a saved Keras checkpoint that drops into `KerasChromBPNetBackend`
   via `load_backend(model_path=...)` with no code changes to the scorer.
-- **Validation (Saturday):** does our model's variant Δ-scores discriminate
-  known causal/regulatory variants (MPRA-validated or fine-mapped) from benign?
-  Report AUROC vs. a naive baseline (conservation / CADD). See
+- **Validation (Saturday):** do the **pretrained model's** variant Δ-scores
+  discriminate known causal/regulatory variants (MPRA-validated or fine-mapped)
+  from benign? Report AUROC vs. a naive baseline (conservation / CADD). The trained
+  model is an extensibility demo, not the thing under validation. See
   `reglens/validation/`.
 
 ## Honest framing

@@ -35,9 +35,12 @@ Implemented so far (the core deterministic scoring path):
   direction. Runs offline with a stub backend (no TensorFlow required).
 - **CLI** (`reglens/cli.py`) — `reglens score` / `reglens demo`.
 
-Not yet built: the remaining deterministic tools (Thursday), the multi-agent
-layer + cited report (Friday), our own trained model + validation (Fri–Sat). See
-[`reglens/model/README.md`](reglens/model/README.md) for the training plan.
+RegLens runs on **pretrained** ChromBPNet models (e.g. ENCODE K562 ATAC). Training a
+model from scratch is *not* framed as out-predicting them — the training notebook
+([`reglens/model/train_chrombpnet.ipynb`](reglens/model/README.md)) demonstrates
+**extending RegLens to a cell type with no public model**, using the exact same
+`chrombpnet pipeline`; validation and the demo use pretrained models. See
+[`reglens/model/README.md`](reglens/model/README.md).
 
 ## Install
 
