@@ -12,9 +12,12 @@ from reglens.tools.chrombpnet_score import (
     ChromBPNetScorer,
     StubBackend,
     VariantScore,
+    aggregate_predictions,
+    discover_fold_models,
     jensen_shannon_distance,
     load_backend,
     one_hot_encode,
+    reverse_complement_onehot,
 )
 
 
@@ -131,3 +134,65 @@ class TestScorer:
 class TestLoadBackend:
     def test_returns_stub_without_path(self):
         assert isinstance(load_backend(None), StubBackend)
+
+
+class TestReverseComplementOnehot:
+    def test_matches_revcomp_sequence(self):
+        # AAC → revcomp GTT
+        rc = reverse_complement_onehot(one_hot_encode("AAC")[None])[0]
+        assert np.array_equal(rc, one_hot_encode("GTT"))
+
+    def test_palindrome_unchanged(self):
+        # ACGT is its own reverse complement.
+        rc = reverse_complement_onehot(one_hot_encode("ACGT")[None])[0]
+        assert np.array_equal(rc, one_hot_encode("ACGT"))
+
+    def test_double_rc_is_identity(self):
+        oh = one_hot_encode("ACGTACG")[None]
+        assert np.array_equal(reverse_complement_onehot(reverse_complement_onehot(oh)), oh)
+
+
+class TestAggregatePredictions:
+    def test_averages_over_folds(self):
+        oh = one_hot_encode("ACGT" * 10)[None]
+        preds = [
+            lambda x: (np.array([2.0]), np.array([[1.0, 3.0]])),
+            lambda x: (np.array([4.0]), np.array([[3.0, 1.0]])),
+        ]
+        out = aggregate_predictions(oh, preds, average_rc=False)
+        assert out.log_counts[0] == pytest.approx(3.0)  # (2+4)/2
+        assert np.allclose(out.profile_logits[0], [2.0, 2.0])  # ([1,3]+[3,1])/2
+
+    def test_rc_profile_realigned_before_averaging(self):
+        oh = one_hot_encode("ACGTAC")[None]
+        # Predictor ignores input, always returns the same profile; RC pass must be
+        # position-flipped back to forward coords before averaging.
+        def pred(x):
+            return np.array([5.0]), np.array([[0.0, 1.0, 2.0]])
+
+        out = aggregate_predictions(oh, [pred], average_rc=True)
+        assert out.log_counts[0] == pytest.approx(5.0)  # 5 and 5 averaged
+        # forward [0,1,2] + realigned RC [2,1,0] → /2 = [1,1,1]
+        assert np.allclose(out.profile_logits[0], [1.0, 1.0, 1.0])
+
+    def test_none_profile_propagates(self):
+        oh = one_hot_encode("ACGT")[None]
+        out = aggregate_predictions(oh, [lambda x: (np.array([1.0]), None)], average_rc=False)
+        assert out.profile_logits is None
+
+
+class TestDiscoverFoldModels:
+    def test_finds_nobias_folds_sorted(self, tmp_path):
+        for fold in (1, 0):
+            d = tmp_path / f"fold_{fold}"
+            d.mkdir()
+            (d / f"model.chrombpnet_nobias.fold_{fold}.ENCSR868FGK.h5").touch()
+            (d / f"model.chrombpnet.fold_{fold}.ENCSR868FGK.h5").touch()  # decoy
+            (d / f"model.bias_scaled.fold_{fold}.ENCSR868FGK.h5").touch()  # decoy
+        found = discover_fold_models(tmp_path)
+        assert len(found) == 2  # only the two nobias models
+        assert all("chrombpnet_nobias" in p for p in found)
+        assert found == sorted(found)  # fold_0 before fold_1
+
+    def test_empty_when_none(self, tmp_path):
+        assert discover_fold_models(tmp_path) == []

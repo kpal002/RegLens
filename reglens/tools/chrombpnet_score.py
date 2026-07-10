@@ -30,7 +30,9 @@ training.**
 
 from __future__ import annotations
 
+import glob
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
@@ -348,34 +350,119 @@ class StubBackend:
         return BackendPrediction(log_counts=log_counts, profile_logits=profile_logits)
 
 
-class KerasChromBPNetBackend:
-    """Backend wrapping a real pretrained, bias-corrected ChromBPNet (TF/Keras) model.
+# A single-model predictor: one-hot batch → (log_counts (N,), profile (N, P) | None).
+Predictor = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray | None]]
 
-    Load ``chrombpnet_nobias.h5`` (the Tn5 bias-corrected model). ChromBPNet models
-    have two output heads exported as ``[profile, counts]``: a base-resolution
-    profile (logits) and a scalar log-counts. We read the counts head as the
-    primary Δ signal and the profile head for the footprint-shape (JSD) signal.
-    TensorFlow is imported lazily so importing RegLens never requires it.
+
+def reverse_complement_onehot(one_hots: np.ndarray) -> np.ndarray:
+    """Reverse-complement a batch of one-hot windows.
+
+    With channel order A, C, G, T, complementing (A↔T, C↔G) is a channel reversal
+    and reverse-complementing is additionally a position reversal — so both the
+    position and channel axes are flipped.
+
+    Args:
+        one_hots: A ``(batch, L, 4)`` one-hot array.
+
+    Returns:
+        The reverse-complemented ``(batch, L, 4)`` array.
+    """
+    return one_hots[:, ::-1, ::-1]
+
+
+def aggregate_predictions(
+    one_hots: np.ndarray, predictors: list[Predictor], average_rc: bool = True
+) -> BackendPrediction:
+    """Average predictions across models (folds) and, optionally, both strands.
+
+    ChromBPNet variant effects are averaged across the training folds; kundajelab's
+    variant-scorer additionally averages the forward and reverse-complement
+    predictions. Log-counts are averaged directly (mean log-counts → mean per-fold
+    logfc after the ref/alt subtraction); profile logits from a reverse-complement
+    pass are flipped back to forward coordinates before averaging.
+
+    Args:
+        one_hots: A ``(batch, L, 4)`` one-hot array.
+        predictors: One callable per fold: ``one_hots → (log_counts, profile)``.
+        average_rc: Also average the reverse-complement pass.
+
+    Returns:
+        The fold/strand-averaged :class:`BackendPrediction`.
+    """
+    passes: list[tuple[np.ndarray, bool]] = [(one_hots, False)]
+    if average_rc:
+        passes.append((reverse_complement_onehot(one_hots), True))
+
+    lc_sum: np.ndarray | None = None
+    prof_sum: np.ndarray | None = None
+    has_profile = True
+    n = 0
+    for predict in predictors:
+        for inp, is_rc in passes:
+            log_counts, profile = predict(inp)
+            log_counts = np.asarray(log_counts, dtype=np.float64).reshape(-1)
+            lc_sum = log_counts if lc_sum is None else lc_sum + log_counts
+            if profile is None:
+                has_profile = False
+            elif has_profile:
+                prof = np.asarray(profile, dtype=np.float64)
+                if is_rc:
+                    prof = prof[:, ::-1]  # realign RC profile to forward coordinates
+                prof_sum = prof if prof_sum is None else prof_sum + prof
+            n += 1
+
+    assert lc_sum is not None  # predictors is non-empty by construction
+    profile_avg = prof_sum / n if (has_profile and prof_sum is not None) else None
+    return BackendPrediction(log_counts=lc_sum / n, profile_logits=profile_avg)
+
+
+def discover_fold_models(
+    directory: str | os.PathLike[str], pattern: str = "**/*chrombpnet_nobias*.h5"
+) -> list[str]:
+    """Find per-fold bias-corrected ChromBPNet model files under a directory.
+
+    Matches ENCODE's naming (e.g. ``model.chrombpnet_nobias.fold_0.ENCSR868FGK.h5``).
+
+    Args:
+        directory: Root to search.
+        pattern: Recursive glob for the nobias model files.
+
+    Returns:
+        Sorted matching paths (fold_0, fold_1, ...).
+    """
+    return sorted(glob.glob(os.path.join(str(directory), pattern), recursive=True))
+
+
+class KerasChromBPNetBackend:
+    """Backend wrapping pretrained, bias-corrected ChromBPNet (TF/Keras) models.
+
+    Loads one or more ``chrombpnet_nobias.h5`` fold models and, on ``predict``,
+    averages their outputs across folds and (by default) across the forward and
+    reverse-complement strands — the standard way to get a stable, less noisy
+    variant effect than a single fold / single strand. ChromBPNet models export two
+    heads as ``[profile, counts]``. TensorFlow is imported lazily.
 
     Note:
-        Exercised against a real downloaded checkpoint (see
-        ``reglens/model/colab_verify_chrombpnet.ipynb``); the offline test suite
-        uses :class:`StubBackend`.
+        Exercised against real checkpoints (see
+        ``reglens/model/colab_verify_chrombpnet.ipynb``); the offline suite tests
+        the pure fold/RC :func:`aggregate_predictions` logic with fake predictors.
     """
 
     def __init__(
         self,
-        model_path: str | os.PathLike[str],
+        model_path: str | os.PathLike[str] | list[str | os.PathLike[str]],
         profile_head_index: int = 0,
         counts_head_index: int = 1,
+        average_rc: bool = True,
     ) -> None:
-        """Load a pretrained ChromBPNet Keras model from disk.
+        """Load one or more pretrained ChromBPNet fold models from disk.
 
         Args:
-            model_path: Path to ``chrombpnet_nobias.h5`` (or a SavedModel dir).
-            profile_head_index: Index of the profile output head. ChromBPNet's
-                standard export orders outputs ``[profile, counts]`` → ``0``.
-            counts_head_index: Index of the log-counts output head → ``1``.
+            model_path: A single ``chrombpnet_nobias.h5`` path, or a list of fold
+                paths to average over.
+            profile_head_index: Index of the profile output head (standard: ``0``).
+            counts_head_index: Index of the log-counts output head (standard: ``1``).
+            average_rc: Average forward + reverse-complement predictions.
 
         Raises:
             ImportError: If TensorFlow is not installed (install the
@@ -390,48 +477,85 @@ class KerasChromBPNetBackend:
                 "Install it with: pip install 'reglens[chrombpnet]'"
             ) from exc
 
-        self.model_path = str(model_path)
+        if isinstance(model_path, (str, os.PathLike)):
+            model_path = [model_path]
+        self.model_paths = [str(p) for p in model_path]
         self.profile_head_index = profile_head_index
         self.counts_head_index = counts_head_index
+        self.average_rc = average_rc
         # `compile=False`: we only run inference, never optimize.
-        self.model = keras.models.load_model(self.model_path, compile=False)
+        self.models = [keras.models.load_model(p, compile=False) for p in self.model_paths]
 
-    def predict(self, one_hots: np.ndarray) -> BackendPrediction:  # pragma: no cover
-        """Predict log-counts and profile logits for a batch of one-hot windows.
+    @classmethod
+    def from_fold_dir(
+        cls, directory: str | os.PathLike[str], **kwargs: object
+    ) -> KerasChromBPNetBackend:  # pragma: no cover - needs TF + checkpoints
+        """Build a backend from all fold models found under ``directory``.
+
+        Args:
+            directory: Root holding the extracted ENCODE fold models.
+            **kwargs: Forwarded to :class:`KerasChromBPNetBackend`.
+
+        Raises:
+            FileNotFoundError: If no nobias fold models are found.
+        """
+        paths = discover_fold_models(directory)
+        if not paths:
+            raise FileNotFoundError(f"No *chrombpnet_nobias*.h5 fold models under {directory}")
+        return cls(paths, **kwargs)  # type: ignore[arg-type]
+
+    def _predict_one(
+        self, model: object, one_hots: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray | None]:  # pragma: no cover - needs TF
+        """Run one fold model and extract (log_counts, profile)."""
+        outputs = model.predict(one_hots, verbose=0)  # type: ignore[attr-defined]
+        if isinstance(outputs, (list, tuple)):
+            profile = np.asarray(outputs[self.profile_head_index], dtype=np.float64)
+            counts = np.asarray(outputs[self.counts_head_index], dtype=np.float64)
+        else:
+            profile = None  # counts-only model
+            counts = np.asarray(outputs, dtype=np.float64)
+        log_counts = counts.reshape(counts.shape[0], -1).sum(axis=1)
+        return log_counts, profile
+
+    def predict(self, one_hots: np.ndarray) -> BackendPrediction:  # pragma: no cover - needs TF
+        """Predict fold/strand-averaged log-counts and profile logits.
 
         Args:
             one_hots: A ``(batch, L, 4)`` one-hot array (``L`` must be 2114).
 
         Returns:
-            A :class:`BackendPrediction` with counts and profile logits.
+            A :class:`BackendPrediction` averaged over folds and (if enabled) strands.
         """
-        outputs = self.model.predict(one_hots, verbose=0)
-        if isinstance(outputs, (list, tuple)):
-            profile = np.asarray(outputs[self.profile_head_index], dtype=np.float64)
-            counts = np.asarray(outputs[self.counts_head_index], dtype=np.float64)
-        else:
-            # A counts-only model: no profile head available.
-            profile = None
-            counts = np.asarray(outputs, dtype=np.float64)
-        # Counts head is (batch, 1) log-total-counts → flatten to (batch,).
-        log_counts = counts.reshape(counts.shape[0], -1).sum(axis=1)
-        return BackendPrediction(log_counts=log_counts, profile_logits=profile)
+        predictors: list[Predictor] = [
+            lambda oh, m=m: self._predict_one(m, oh) for m in self.models
+        ]
+        return aggregate_predictions(one_hots, predictors, average_rc=self.average_rc)
 
 
 def load_backend(
-    model_path: str | os.PathLike[str] | None = None, *, stub_seed: int = 0
+    model_path: str | os.PathLike[str] | None = None,
+    *,
+    stub_seed: int = 0,
+    average_rc: bool = True,
 ) -> ModelBackend:
-    """Return a scoring backend: a real Keras model if a path is given, else a stub.
+    """Return a scoring backend: real Keras model(s) if a path is given, else a stub.
 
     Args:
-        model_path: Path to a pretrained ``chrombpnet_nobias.h5`` model. If
-            ``None``, an offline :class:`StubBackend` is returned so the pipeline
-            still runs.
+        model_path: Path to a pretrained ``chrombpnet_nobias.h5`` file, **or a
+            directory** of extracted fold models (all folds are loaded and averaged).
+            If ``None``, an offline :class:`StubBackend` is returned.
         stub_seed: Seed used when falling back to the stub backend.
+        average_rc: Average forward + reverse-complement predictions (Keras backend).
 
     Returns:
         A :class:`ModelBackend` implementation.
+
+    Raises:
+        FileNotFoundError: If ``model_path`` is a directory with no fold models.
     """
     if model_path is None:
         return StubBackend(seed=stub_seed)
-    return KerasChromBPNetBackend(model_path)
+    if os.path.isdir(model_path):  # a directory of extracted fold models
+        return KerasChromBPNetBackend.from_fold_dir(model_path, average_rc=average_rc)
+    return KerasChromBPNetBackend(model_path, average_rc=average_rc)

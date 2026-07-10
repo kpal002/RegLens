@@ -68,6 +68,24 @@ Run on 2026-07-09 with `model.chrombpnet_nobias.fold_0.ENCSR868FGK.h5`:
 
 The interface is confirmed; the remaining work is estimate robustness, not plumbing.
 
+### Fold + reverse-complement averaging (estimate robustness)
+
+`KerasChromBPNetBackend` averages predictions across **all folds** and across the
+**forward + reverse-complement** strands (kundajelab variant-scorer's default), which
+stabilizes the variant effect versus a single fold / single strand — directly
+answering the red-team's "single fold, possibly model noise" critique. Usage:
+
+```python
+from reglens.tools.chrombpnet_score import load_backend
+# Point at the extracted ENCODE fold directory — all *_nobias fold models are loaded:
+backend = load_backend("encode_models")            # fold + RC averaging (default)
+backend = load_backend("encode_models", average_rc=False)   # folds only
+# CLI: reglens analyze <variant> --rsid <rs> --model encode_models --interpret
+```
+
+The pure fold/RC aggregation (`aggregate_predictions`, `reverse_complement_onehot`)
+is unit-tested offline; the Keras inference wrapper is exercised on real checkpoints.
+
 ## Plan: train our own model (Friday, in parallel)
 
 On Friday we fine-tune / train one ChromBPNet model as the project's real ML +
