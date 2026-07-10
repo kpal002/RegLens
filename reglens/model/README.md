@@ -86,11 +86,18 @@ backend = load_backend("encode_models", average_rc=False)   # folds only
 The pure fold/RC aggregation (`aggregate_predictions`, `reverse_complement_onehot`)
 is unit-tested offline; the Keras inference wrapper is exercised on real checkpoints.
 
-## Plan: train our own model (Friday, in parallel)
+## Train our own model → `train_chrombpnet.ipynb`
 
-On Friday we fine-tune / train one ChromBPNet model as the project's real ML +
-validation component. This runs **in parallel** on managed GPUs and does not block
-the product — RegLens works on the pretrained model regardless of the outcome.
+`train_chrombpnet.ipynb` is the Colab notebook that trains one ChromBPNet model on
+**K562 ATAC (ENCODE ENCSR868FGK)** by invoking the `chrombpnet pipeline` CLI (we do
+not reimplement the model). It downloads the ENCODE BAM + peaks, hg38 + chrom.sizes,
+the ENCODE blacklist, and a pretrained Tn5 `bias.h5` (reused to skip bias training),
+preps GC-matched nonpeaks + a fold split, runs the pipeline, and shows how to plug the
+resulting `chrombpnet_nobias.h5` straight into `load_backend(...)`.
+
+**Requirements:** GPU runtime (Colab Pro), ~hours/fold (~12 h overnight budget), tens
+of GB disk. This is the **parallel, non-critical-path** ML track — RegLens works on the
+pretrained model regardless of the outcome.
 
 - **Data:** one ENCODE ATAC-seq experiment (a single, well-characterized cell
   type — no genome-wide scope creep), plus the hg38 FASTA. All open data.
