@@ -135,6 +135,36 @@ class TestMotifEffect:
                               motifs=motifs, min_binding_bits=8.0)
         assert result.top is None
 
+    def test_reconciles_created_to_ref_disrupts(self):
+        # When the alt allele CREATES a site, the ref allele is the disrupting one —
+        # this is what reconciles our "created" call with literature "disruption".
+        motifs = load_motifs()
+        ctcf = _by_name(motifs, "CTCF")
+        pos = ctcf.width // 2
+        cons = _consensus(ctcf)
+        bad = _worst_base(ctcf, pos)
+        flank = "GTACGTACGTACGTACGTACGTACGTAC"
+        ref_motif = cons[:pos] + bad + cons[pos + 1 :]  # ref weak, alt restores
+        off = len(flank) + pos
+        ref_seq = flank + ref_motif + flank
+        alt_seq = ref_seq[:off] + cons[pos] + ref_seq[off + 1 :]
+        window = SequenceWindow("chr_test", 0, len(ref_seq), off, ref_seq, alt_seq)
+        result = motif_effect(window, Variant("chr_test", 100, bad, cons[pos]), motifs=motifs)
+        assert result.top.effect == "created"
+        assert result.disrupting_allele == bad  # the reference allele breaks the site
+        note = result.reconciling_note()
+        assert bad in note and cons[pos] in note
+        assert "the " + bad + " allele is the one that breaks the site" in result.summary()
+
+    def test_disrupting_allele_none_when_unchanged(self):
+        motifs = load_motifs()
+        seq = "GTACGTAC" * 10
+        window = SequenceWindow("chr_test", 0, len(seq), 40, seq, seq[:40] + "A" + seq[41:])
+        result = motif_effect(window, Variant("chr_test", 40, seq[40], "A"),
+                              motifs=motifs, min_binding_bits=8.0)
+        assert result.disrupting_allele is None  # no credible hit
+        assert result.reconciling_note() is None
+
     def test_hits_ranked_by_disruption(self):
         motifs = load_motifs()
         ctcf = _by_name(motifs, "CTCF")

@@ -208,15 +208,45 @@ class MotifEffectResult:
     hits: list[MotifHit] = field(default_factory=list)
     top: MotifHit | None = None
 
+    @property
+    def disrupting_allele(self) -> str | None:
+        """Which allele base *weakens* the top motif (the lower-scoring allele).
+
+        ``effect`` is stated relative to the alt allele (created/disrupted), but the
+        literature usually frames the mechanism around whichever allele *breaks* the
+        site. This exposes that framing explicitly so the two reconcile: for a motif
+        the alt allele *creates* (``delta > 0``), the *reference* allele is the one
+        that disrupts it; for one the alt allele *disrupts* (``delta < 0``), the alt
+        allele is the disrupting one. ``None`` if the effect is neutral.
+        """
+        if self.top is None or self.top.effect == "unchanged":
+            return None
+        return self.variant.ref if self.top.delta_score > 0 else self.variant.alt
+
+    def reconciling_note(self) -> str | None:
+        """Plain-language note stating both allele framings (for the reasoning layer)."""
+        if self.top is None or self.disrupting_allele is None:
+            return None
+        v = self.variant
+        strong = v.alt if self.disrupting_allele == v.ref else v.ref
+        return (
+            f"The {self.disrupting_allele} allele weakens/abolishes the {self.top.tf_name} "
+            f"site while the {strong} allele forms it; whether this reads as 'created' or "
+            f"'disrupted' depends only on which allele is taken as reference."
+        )
+
     def summary(self) -> str:
-        """A one-line human-readable summary of the top motif effect."""
+        """A one-line summary of the top motif effect, framing-reconciled."""
         if self.top is None:
             return f"{self.variant}: no credible TF motif overlaps the variant."
         t = self.top
-        return (
-            f"{self.variant}: {t.effect} {t.tf_name} ({t.motif_id}, {t.strand} strand) "
-            f"— motif score {t.ref_score:.2f}→{t.alt_score:.2f} bits (Δ={t.delta_score:+.2f})"
+        base = (
+            f"{self.variant}: alt allele {t.effect} {t.tf_name} ({t.motif_id}, {t.strand} strand) "
+            f"— score {t.ref_score:.2f}(ref)→{t.alt_score:.2f}(alt) bits (Δ={t.delta_score:+.2f})"
         )
+        if self.disrupting_allele is not None:
+            base += f"; the {self.disrupting_allele} allele is the one that breaks the site"
+        return base
 
 
 def _classify(delta: float) -> str:

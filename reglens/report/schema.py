@@ -83,9 +83,15 @@ class EvidenceBundle:
         if self.motif is not None and self.motif.top is not None:
             t = self.motif.top
             d["motif"] = {
-                "tf": t.tf_name, "motif_id": t.motif_id, "effect": t.effect,
+                "tf": t.tf_name, "motif_id": t.motif_id,
+                # `effect` is alt-relative; `disrupting_allele` + `note` give the
+                # reference-neutral framing so "created" and literature "disruption"
+                # reconcile (they describe the same event from opposite alleles).
+                "effect_of_alt": t.effect,
+                "disrupting_allele": self.motif.disrupting_allele,
                 "strand": t.strand, "ref_score": t.ref_score, "alt_score": t.alt_score,
                 "delta_score": t.delta_score,
+                "note": self.motif.reconciling_note(),
             }
         if self.regulatory is not None:
             n = self.regulatory.nearest
