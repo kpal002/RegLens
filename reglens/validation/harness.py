@@ -158,12 +158,25 @@ def _safe_auroc(scored: list[ScoredVariant], use_baseline: bool) -> float | None
     return roc_auc(scores, labels)
 
 
+def _progress(variants: list[LabeledVariant], enabled: bool):
+    """Wrap the variant iterator with a tqdm bar if requested and available."""
+    if not enabled:
+        return variants
+    try:
+        from tqdm.auto import tqdm
+
+        return tqdm(variants, desc="scoring")
+    except ImportError:
+        return variants  # periodic prints handle the no-tqdm case in the loop
+
+
 def evaluate(
     variants: list[LabeledVariant],
     scorer: ChromBPNetScorer,
     genome_path: str | os.PathLike[str] | None = None,
     score_fn: ScoreFn = default_score,
     baseline: BaselineFn | None = None,
+    progress: bool = False,
 ) -> ValidationReport:
     """Score a labeled variant set and report model vs baseline AUROC.
 
@@ -174,6 +187,8 @@ def evaluate(
         score_fn: Maps a :class:`VariantScore` to a scalar model score.
         baseline: Optional baseline score function (e.g.
             :func:`annotation_baseline("cadd")`); defaults to trying ``cadd``/``phylop``.
+        progress: Show a progress bar (tqdm if installed, else periodic prints) — useful
+            for the long full-benchmark run.
 
     Returns:
         A :class:`ValidationReport`.
@@ -183,7 +198,10 @@ def evaluate(
 
     scored: list[ScoredVariant] = []
     errors = 0
-    for lv in variants:
+    total = len(variants)
+    iterator = _progress(variants, progress)
+    have_bar = iterator is not variants  # tqdm wrapped it
+    for idx, lv in enumerate(iterator, 1):
         item = ScoredVariant(labeled=lv, baseline_score=baseline(lv))
         try:
             vs = scorer.score_variant(lv.variant, genome_path=genome_path, celltype=lv.source)
@@ -193,6 +211,9 @@ def evaluate(
             item.error = f"{type(exc).__name__}: {exc}"
             errors += 1
         scored.append(item)
+        # Fallback progress when tqdm isn't installed.
+        if progress and not have_bar and idx % 500 == 0:
+            print(f"  scored {idx}/{total} ({errors} errors)", flush=True)
 
     return ValidationReport(
         n_pos=sum(1 for s in scored if s.model_score is not None and s.labeled.label == 1),

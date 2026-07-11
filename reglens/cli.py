@@ -224,7 +224,9 @@ def validate(
     scorer = ChromBPNetScorer(
         backend, window_length=window, model_name=model.name if model else "stub(offline)"
     )
-    report = evaluate(variants, scorer, genome_path=str(genome) if genome else None)
+    report = evaluate(
+        variants, scorer, genome_path=str(genome) if genome else None, progress=True
+    )
     if as_json:
         typer.echo(_json.dumps(report.to_dict(), indent=2))
     else:

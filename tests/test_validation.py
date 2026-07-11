@@ -123,6 +123,12 @@ class TestEvaluate:
                           baseline=annotation_baseline("cadd"))
         assert report.baseline_auroc is None
 
+    def test_progress_flag_runs(self, val_genome):
+        fa, seq = val_genome
+        variants = [_labeled(seq, p, lab, 0) for p, lab in [(20, 1), (40, 0)]]
+        report = evaluate(variants, self._scorer(), genome_path=fa, progress=True)
+        assert report.n_pos == 1 and report.n_neg == 1  # progress path doesn't break it
+
     def test_roc_points(self, val_genome):
         fa, seq = val_genome
         variants = [_labeled(seq, p, lab, 0) for p, lab in
