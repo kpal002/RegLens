@@ -252,6 +252,19 @@ class TestCaddMerge:
         )
         scores = load_cadd_scores(cadd)
         assert scores[("2", "100", "C", "T")] == 22.4
+
+    def test_load_cadd_skips_malformed_rows(self, tmp_path):
+        from reglens.validation.cadd import load_cadd_scores
+        cadd = tmp_path / "cadd.tsv"
+        # A short row (missing PHRED) and a non-numeric PHRED must be skipped, not crash.
+        cadd.write_text(
+            "##CADD GRCh38-v1.7\n#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\n"
+            "1\t100\tG\tA\t1.5\t14.7\n"
+            "1\t200\tG\tC\t1.2\n"          # short row → no PHRED
+            "1\t300\tG\tT\t1.1\tNA\n"      # non-numeric PHRED
+        )
+        scores = load_cadd_scores(cadd)
+        assert scores == {("1", "100", "G", "A"): 14.7}
         out = tmp_path / "out.tsv"
         n, total = annotate_benchmark(bench, cadd, out)
         assert (n, total) == (1, 2)

@@ -45,10 +45,14 @@ def load_cadd_scores(cadd_tsv: str | os.PathLike[str]) -> dict[tuple[str, str, s
         lines[0] = lines[0][1:]
     reader = csv.DictReader(lines, delimiter="\t")
     for row in reader:
+        chrom, pos, ref, alt, phred = (
+            row.get("Chrom"), row.get("Pos"), row.get("Ref"), row.get("Alt"), row.get("PHRED")
+        )
+        if not all((chrom, pos, ref, alt, phred)):  # skip malformed / short rows
+            continue
         try:
-            key = (_norm_chrom(row["Chrom"]), row["Pos"], row["Ref"].upper(), row["Alt"].upper())
-            lookup[key] = float(row["PHRED"])
-        except (KeyError, ValueError):
+            lookup[(_norm_chrom(chrom), pos, ref.upper(), alt.upper())] = float(phred)
+        except (ValueError, TypeError):
             continue
     return lookup
 
