@@ -259,6 +259,22 @@ class TestCaddMerge:
         assert lvs[0].annotations["cadd"] == 22.4
         assert "cadd" not in lvs[1].annotations  # unmatched → empty, not loaded
 
+    def test_export_vcf(self, tmp_path):
+        from reglens.validation.cadd import export_vcf
+        bench = tmp_path / "b.tsv"
+        bench.write_text(
+            "chrom\tpos\tref\talt\tlabel\trsid\tsource\n"
+            "chr2\t100\tc\tT\t1\t\tE\n"
+            "chr2\t100\tc\tT\t0\t\tE\n"     # duplicate → de-duped
+            "chr7\t50\tA\tG\t0\t\tE\n"
+        )
+        vcf = tmp_path / "v.vcf"
+        n = export_vcf(bench, vcf)
+        assert n == 2  # de-duplicated
+        lines = vcf.read_text().splitlines()
+        assert lines[0].startswith("##fileformat")
+        assert "2\t100\t.\tC\tT" in vcf.read_text()  # chr stripped, ref upper-cased
+
 
 class TestLineage:
     def test_classification(self):
