@@ -176,3 +176,55 @@ class TestDefaultScore:
         vs = VariantScore(Variant("c", 1, "A", "G"), None, 1.0, -0.5, -1.5, "decrease",
                           None, SequenceWindow("c", 0, 4, 2, "ACGT", "ACGT"), "m")
         assert default_score(vs) == pytest.approx(1.5)
+
+
+class TestPerSourceAndRender:
+    def _report(self):
+        from reglens.validation.harness import ScoredVariant, ValidationReport
+
+        def sv(src, label, score):
+            return ScoredVariant(LabeledVariant(Variant("c", 1, "A", "G"), label, source=src),
+                                 model_score=score)
+        scored = [
+            sv("BCL11A", 1, 0.9), sv("BCL11A", 1, 0.8), sv("BCL11A", 0, 0.2), sv("BCL11A", 0, 0.1),
+            sv("SORT1", 1, 0.3), sv("SORT1", 0, 0.7),  # inverted within SORT1
+        ]
+        return ValidationReport(n_pos=3, n_neg=3, model_auroc=0.7, baseline_auroc=None,
+                                model_name="stub", scored=scored)
+
+    def test_per_source_auroc(self):
+        per = dict((r[0], r[1:]) for r in self._report().per_source_auroc())
+        assert per["BCL11A"] == (pytest.approx(1.0), 2, 2)   # perfectly separated
+        assert per["SORT1"] == (pytest.approx(0.0), 1, 1)    # inverted
+        # sorted by size → BCL11A (4) before SORT1 (2)
+        assert self._report().per_source_auroc()[0][0] == "BCL11A"
+
+    def test_render_validation(self):
+        from reglens.report.render import render_validation
+        text = render_validation(self._report())
+        assert "OVERALL" in text and "per element" in text
+        assert "BCL11A" in text and "baseline(CADD)=n/a" in text
+
+
+class TestCaddMerge:
+    def test_annotate_benchmark(self, tmp_path):
+        from reglens.validation.cadd import annotate_benchmark, load_cadd_scores
+        bench = tmp_path / "b.tsv"
+        bench.write_text(
+            "chrom\tpos\tref\talt\tlabel\trsid\tsource\n"
+            "chr2\t100\tC\tT\t1\t\tBCL11A\n"
+            "chr2\t200\tA\tG\t0\t\tBCL11A\n"
+        )
+        cadd = tmp_path / "cadd.tsv"
+        cadd.write_text(
+            "## CADD GRCh38\n#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\n"
+            "2\t100\tC\tT\t1.2\t22.4\n"
+        )
+        scores = load_cadd_scores(cadd)
+        assert scores[("2", "100", "C", "T")] == 22.4
+        out = tmp_path / "out.tsv"
+        n, total = annotate_benchmark(bench, cadd, out)
+        assert (n, total) == (1, 2)
+        lvs = load_labeled_variants(out)
+        assert lvs[0].annotations["cadd"] == 22.4
+        assert "cadd" not in lvs[1].annotations  # unmatched → empty, not loaded

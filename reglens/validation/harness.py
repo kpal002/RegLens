@@ -96,13 +96,32 @@ class ValidationReport:
             f"({self.n_pos} pos / {self.n_neg} neg, {self.errors} errors) [{self.model_name}]"
         )
 
-    def roc_points(self) -> tuple[np.ndarray, np.ndarray] | None:
-        """Model ROC-curve ``(fpr, tpr)`` for plotting, or ``None`` if not computable."""
-        scores, labels = _score_label_arrays(self.scored, use_baseline=False)
+    def roc_points(self, use_baseline: bool = False) -> tuple[np.ndarray, np.ndarray] | None:
+        """ROC-curve ``(fpr, tpr)`` for plotting, or ``None`` if not computable."""
+        scores, labels = _score_label_arrays(self.scored, use_baseline)
         if scores is None:
             return None
         fpr, tpr, _ = roc_curve(scores, labels)
         return fpr, tpr
+
+    def per_source_auroc(self) -> list[tuple[str, float | None, int, int]]:
+        """Per-element (source) breakdown: ``(source, model_auroc, n_pos, n_neg)``.
+
+        AUROC is ``None`` for an element lacking both classes. Sorted by size so the
+        best-powered elements lead. This is the honest per-element report — a
+        genomics reviewer will ask for it.
+        """
+        groups: dict[str, list[ScoredVariant]] = {}
+        for s in self.scored:
+            if s.model_score is None:
+                continue
+            groups.setdefault(s.labeled.source or "(none)", []).append(s)
+        rows: list[tuple[str, float | None, int, int]] = []
+        for src, items in groups.items():
+            n_pos = sum(1 for i in items if i.labeled.label == 1)
+            n_neg = sum(1 for i in items if i.labeled.label == 0)
+            rows.append((src, _safe_auroc(items, use_baseline=False), n_pos, n_neg))
+        return sorted(rows, key=lambda r: -(r[2] + r[3]))
 
     def to_dict(self) -> dict[str, Any]:
         """JSON-able summary (per-variant scores omitted for brevity)."""

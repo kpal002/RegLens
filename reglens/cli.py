@@ -228,7 +228,9 @@ def validate(
     if as_json:
         typer.echo(_json.dumps(report.to_dict(), indent=2))
     else:
-        typer.echo(report.summary())
+        from reglens.report.render import render_validation
+
+        typer.echo(render_validation(report))
 
 
 if __name__ == "__main__":

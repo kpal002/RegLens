@@ -49,7 +49,7 @@ include = ["reglens*"]
 
 [tool.setuptools.package-data]
 # Ship the bundled demo genome and JASPAR motif subset inside the wheel.
-reglens = ["data/**/*.fa", "data/**/*.jaspar", "data/**/*.md", "model/*.ipynb"]
+reglens = ["data/**/*.fa", "data/**/*.jaspar", "data/**/*.md", "model/*.ipynb", "validation/*.ipynb"]
 
 [tool.ruff]
 line-length = 100

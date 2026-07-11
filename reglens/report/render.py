@@ -13,6 +13,7 @@ from reglens.report.schema import EvidenceBundle
 if TYPE_CHECKING:  # avoid importing the agents layer (and its deps) at import time
     from reglens.agents.interpreter import MechanisticInterpretation
     from reglens.agents.multi_agent import MultiAgentResult
+    from reglens.validation.harness import ValidationReport
 
 _RULE = "─" * 66
 
@@ -68,6 +69,24 @@ def render_text(bundle: EvidenceBundle) -> str:
 def render_interpretation(interp: MechanisticInterpretation) -> str:
     """Render a mechanistic interpretation as a titled text block."""
     return "\n".join(["── RegLens interpretation " + "─" * 40, interp.format(), _RULE])
+
+
+def render_validation(report: ValidationReport) -> str:
+    """Render a validation report: overall + per-element AUROC + class balance."""
+    lines = ["── RegLens validation (AUROC: regulatory vs benign) " + "─" * 14]
+    m = f"{report.model_auroc:.3f}" if report.model_auroc is not None else "n/a"
+    b = f"{report.baseline_auroc:.3f}" if report.baseline_auroc is not None else "n/a (no CADD)"
+    lines.append(f"  OVERALL   model={m}   baseline(CADD)={b}")
+    lines.append(f"  balance   {report.n_pos} positive / {report.n_neg} negative"
+                 f" · {report.errors} scoring errors · model={report.model_name}")
+    per = report.per_source_auroc()
+    if per:
+        lines.append("  per element (matched within-element negatives):")
+        for src, auroc, n_pos, n_neg in per:
+            a = f"{auroc:.3f}" if auroc is not None else "  n/a"
+            lines.append(f"    {src:16s} AUROC={a}   ({n_pos} pos / {n_neg} neg)")
+    lines.append(_RULE)
+    return "\n".join(lines)
 
 
 def render_deliberation(result: MultiAgentResult) -> str:
