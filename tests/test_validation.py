@@ -258,3 +258,24 @@ class TestCaddMerge:
         lvs = load_labeled_variants(out)
         assert lvs[0].annotations["cadd"] == 22.4
         assert "cadd" not in lvs[1].annotations  # unmatched → empty, not loaded
+
+
+class TestLineage:
+    def test_classification(self):
+        from reglens.validation.lineage import is_hematopoietic, lineage
+        assert is_hematopoietic("BCL11A") and is_hematopoietic("PKLR-48h")
+        assert is_hematopoietic("GP1BA")  # megakaryocyte
+        assert not is_hematopoietic("FOXE1") and not is_hematopoietic("LDLR")
+        assert lineage("FOXE1") == "thyroid"
+        assert lineage("Unknown-Element") == "unknown"
+
+    def test_stratify_group_means(self):
+        from reglens.validation.lineage import stratify
+        per = [("BCL11A", 0.62, 1, 1), ("HBB", 0.68, 1, 1),
+               ("FOXE1", 0.43, 1, 1), ("TCF7L2", 0.49, 1, 1),
+               ("Unmapped", None, 0, 5)]  # None auroc excluded
+        g = stratify(per)
+        assert g["hematopoietic"]["n"] == 2
+        assert g["hematopoietic"]["mean_auroc"] == pytest.approx(0.65)
+        assert g["other"]["n"] == 2
+        assert g["other"]["mean_auroc"] == pytest.approx(0.46)

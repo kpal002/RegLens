@@ -1,0 +1,91 @@
+"""Cell-type-specificity analysis of per-element validation AUROC.
+
+Curates the lineage of each Kircher satMutMPRA element (by its primary regulated gene /
+disease context) so per-element AUROC can be stratified by whether the element is in
+the model's lineage. For a **K562 (erythroid/hematopoietic)** ChromBPNet model, the
+hypothesis is that it discriminates functional variants better in hematopoietic
+elements than in non-hematopoietic ones — the measurable form of RegLens's
+cell-type-specificity thesis.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from reglens.validation.harness import ValidationReport
+
+# Element → lineage of its primary regulated gene / element context.
+ELEMENT_LINEAGE: dict[str, str] = {
+    # Hematopoietic (K562's lineage)
+    "BCL11A": "erythroid", "HBB": "erythroid", "HBG1": "erythroid",
+    "PKLR-24h": "erythroid", "PKLR-48h": "erythroid",
+    "GP1BA": "megakaryocyte",
+    # Hepatic
+    "SORT1": "hepatic", "SORT1.2": "hepatic", "SORT1-flip": "hepatic",
+    "LDLR": "hepatic", "LDLR.2": "hepatic", "HNF4A": "hepatic", "F9": "hepatic",
+    # Tissue-specific, non-hematopoietic
+    "FOXE1": "thyroid", "RET": "neural-crest", "IRF6": "craniofacial",
+    "IRF4": "melanocyte", "TCF7L2": "gut/pancreas", "ZFAND3": "metabolic",
+    "MSMB": "prostate", "UC88": "developmental",
+    "ZRSh-13": "limb", "ZRSh-13h2": "limb",
+    # Broadly active (telomerase / MYC amplicon)
+    "MYCrs6983267": "broad", "MYCrs11986220": "broad",
+    "TERT-GSc": "broad", "TERT-GBM": "broad", "TERT-GAa": "broad", "TERT-HEK": "broad",
+}
+
+# Lineages that belong to the hematopoietic (K562) compartment.
+HEMATOPOIETIC = frozenset({"erythroid", "megakaryocyte"})
+
+
+def lineage(element: str) -> str:
+    """Return the curated lineage for an element (``"unknown"`` if unmapped)."""
+    return ELEMENT_LINEAGE.get(element, "unknown")
+
+
+def is_hematopoietic(element: str) -> bool:
+    """Whether an element's lineage is hematopoietic (K562's compartment)."""
+    return lineage(element) in HEMATOPOIETIC
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def stratify(
+    per_element: list[tuple[str, float | None, int, int]],
+) -> dict[str, dict[str, object]]:
+    """Split per-element AUROC into hematopoietic vs non-hematopoietic groups.
+
+    Args:
+        per_element: ``(element, auroc, n_pos, n_neg)`` rows (from
+            :meth:`ValidationReport.per_source_auroc`).
+
+    Returns:
+        ``{"hematopoietic": {...}, "other": {...}}`` where each group carries its
+        member elements and their mean AUROC.
+    """
+    hema = [(s, a) for s, a, _, _ in per_element if a is not None and is_hematopoietic(s)]
+    other = [(s, a) for s, a, _, _ in per_element if a is not None and not is_hematopoietic(s)]
+    return {
+        "hematopoietic": {
+            "elements": [s for s, _ in hema], "mean_auroc": _mean([a for _, a in hema]),
+            "n": len(hema),
+        },
+        "other": {
+            "elements": [s for s, _ in other], "mean_auroc": _mean([a for _, a in other]),
+            "n": len(other),
+        },
+    }
+
+
+def render_celltype_specificity(report: ValidationReport) -> str:
+    """Render the hematopoietic-vs-other AUROC contrast for a report."""
+    groups = stratify(report.per_source_auroc())
+    lines = ["── Cell-type specificity (K562 = erythroid/hematopoietic) " + "─" * 8]
+    for name, key in (("hematopoietic elements", "hematopoietic"), ("other elements", "other")):
+        g = groups[key]
+        mean = f"{g['mean_auroc']:.3f}" if g["mean_auroc"] is not None else "n/a"
+        lines.append(f"  {name:24s} mean AUROC={mean}  (n={g['n']})")
+    lines.append("  (K562 model should discriminate hematopoietic elements better.)")
+    return "\n".join(lines)
