@@ -1,0 +1,5 @@
+chrom	pos	ref	alt	label	rsid	source	cadd
+chr2	60490908	T	G	1	rs1427407	fine-mapped	18.4
+chr1	1000000	G	A	0		benign-control	2.1
+chr3	5000000	C	A	0		benign-control	2.1
+chr12	20000000	T	A	0		benign-control	2.1

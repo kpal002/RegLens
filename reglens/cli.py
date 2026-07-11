@@ -196,5 +196,40 @@ def analyze(
         typer.echo("\n" + render_interpretation(interpretation))
 
 
+@app.command()
+def validate(
+    dataset: Path = typer.Argument(
+        ..., help="Labeled variant TSV (chrom,pos,ref,alt,label[,rsid,source,cadd])."
+    ),
+    genome: Path = typer.Option(
+        None, "--genome", "-g", help="hg38 FASTA. Defaults to $REGLENS_GENOME."
+    ),
+    model: Path = typer.Option(
+        None, "--model", "-m", help="Pretrained ChromBPNet model or fold dir; omit for stub."
+    ),
+    window: int = typer.Option(DEFAULT_WINDOW_LENGTH, "--window", "-w", help="Window length (bp)."),
+    as_json: bool = typer.Option(False, "--json", help="Emit the report as JSON."),
+) -> None:
+    """Report AUROC of the model's variant Δ-scores (regulatory vs benign) vs a baseline.
+
+    Scores each labeled variant through ChromBPNet (score = |Δ log-counts|) and reports
+    AUROC discriminating positives (label 1) from negatives (label 0), alongside a naive
+    baseline read from a ``cadd``/``phylop`` column if present. Validates the pretrained
+    model; the trained model is an extensibility demo, not the thing under test.
+    """
+    from reglens.validation import evaluate, load_labeled_variants
+
+    variants = load_labeled_variants(dataset)
+    backend = load_backend(str(model) if model else None)
+    scorer = ChromBPNetScorer(
+        backend, window_length=window, model_name=model.name if model else "stub(offline)"
+    )
+    report = evaluate(variants, scorer, genome_path=str(genome) if genome else None)
+    if as_json:
+        typer.echo(_json.dumps(report.to_dict(), indent=2))
+    else:
+        typer.echo(report.summary())
+
+
 if __name__ == "__main__":
     app()
