@@ -224,3 +224,100 @@ def evaluate(
         scored=scored,
         errors=errors,
     )
+
+
+def _report_from_scored(
+    scored: list[ScoredVariant], model_name: str, errors: int
+) -> ValidationReport:
+    """Assemble a :class:`ValidationReport` from scored items."""
+    return ValidationReport(
+        n_pos=sum(1 for s in scored if s.model_score is not None and s.labeled.label == 1),
+        n_neg=sum(1 for s in scored if s.model_score is not None and s.labeled.label == 0),
+        model_auroc=_safe_auroc(scored, use_baseline=False),
+        baseline_auroc=_safe_auroc(scored, use_baseline=True),
+        model_name=model_name,
+        scored=scored,
+        errors=errors,
+    )
+
+
+def evaluate_batched(
+    variants: list[LabeledVariant],
+    scorer: ChromBPNetScorer,
+    genome_path: str | os.PathLike[str] | None = None,
+    chunk_size: int = 2000,
+    baseline: BaselineFn | None = None,
+    progress: bool = False,
+) -> ValidationReport:
+    """Fast validation: batch all sequences through the model instead of one-at-a-time.
+
+    The per-variant :func:`evaluate` issues ``folds × strands`` tiny ``model.predict``
+    calls per variant — fine for a handful, hours for 33k. This path builds every
+    variant's ref/alt windows, stacks them, and runs the backend on large batches
+    (one ``model.predict`` per fold/strand over ``2 × chunk_size`` sequences), which is
+    orders of magnitude fewer calls. The model score is ``|Δ log-counts|`` (the default
+    score); use :func:`evaluate` if you need a custom ``score_fn``.
+
+    Args:
+        variants: The labeled variants.
+        scorer: A :class:`ChromBPNetScorer` (its ``backend`` and ``window_length`` are
+            used directly).
+        genome_path: hg38 FASTA path.
+        chunk_size: Variants per batch (memory vs. speed; each batch holds
+            ``2 × chunk_size`` one-hot windows).
+        baseline: Baseline score function; defaults to ``cadd``/``phylop``.
+        progress: Show a tqdm bar over the chunks.
+
+    Returns:
+        A :class:`ValidationReport` (identical AUROC to :func:`evaluate`, just faster).
+    """
+    import numpy as np
+
+    from reglens.genome import build_sequence_windows
+    from reglens.tools.chrombpnet_score import one_hot_encode
+
+    if baseline is None:
+        baseline = annotation_baseline("cadd", "phylop")
+    backend = scorer.backend
+    win_len = scorer.window_length
+
+    scored: list[ScoredVariant] = []
+    errors = 0
+    # Buffer of (item, ref_one_hot, alt_one_hot) for the current chunk.
+    buffer: list[tuple[ScoredVariant, np.ndarray, np.ndarray]] = []
+
+    def flush() -> None:
+        """Score the buffered chunk in one batched backend call."""
+        if not buffer:
+            return
+        count = len(buffer)
+        refs = np.stack([b[1] for b in buffer])
+        alts = np.stack([b[2] for b in buffer])
+        stacked = np.concatenate([refs, alts], axis=0)  # (2*count, L, 4)
+        pred = backend.predict(stacked)  # fold/strand aggregation happens inside
+        log_counts = np.asarray(pred.log_counts, dtype=np.float64)
+        ref_lc, alt_lc = log_counts[:count], log_counts[count:]
+        for i, (item, _, _) in enumerate(buffer):
+            delta = float(alt_lc[i] - ref_lc[i])
+            item.delta_log_counts = delta
+            item.model_score = abs(delta)  # == default_score(VariantScore)
+        buffer.clear()
+
+    chunks_total = (len(variants) + chunk_size - 1) // chunk_size
+    processed = 0
+    for lv in variants:
+        item = ScoredVariant(labeled=lv, baseline_score=baseline(lv))
+        try:
+            w = build_sequence_windows(lv.variant, genome_path=genome_path, window_length=win_len)
+            buffer.append((item, one_hot_encode(w.ref_seq), one_hot_encode(w.alt_seq)))
+        except Exception as exc:  # noqa: BLE001 - isolate per-variant window failures
+            item.error = f"{type(exc).__name__}: {exc}"
+            errors += 1
+        scored.append(item)
+        if len(buffer) >= chunk_size:
+            flush()
+            processed += 1
+            if progress:
+                print(f"  batch {processed}/{chunks_total} done", flush=True)
+    flush()
+    return _report_from_scored(scored, scorer.model_name, errors)

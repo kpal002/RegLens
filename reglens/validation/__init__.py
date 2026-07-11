@@ -6,13 +6,14 @@ variants (MPRA / CAGI / fine-mapped) above benign ones, versus a naive baseline
 """
 
 from reglens.validation.dataset import LabeledVariant, load_labeled_variants
-from reglens.validation.harness import ValidationReport, evaluate
+from reglens.validation.harness import ValidationReport, evaluate, evaluate_batched
 from reglens.validation.metrics import roc_auc, roc_curve
 
 __all__ = [
     "LabeledVariant",
     "ValidationReport",
     "evaluate",
+    "evaluate_batched",
     "load_labeled_variants",
     "roc_auc",
     "roc_curve",

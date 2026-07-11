@@ -10,7 +10,12 @@ import pytest
 from reglens.genome import Variant
 from reglens.tools.chrombpnet_score import ChromBPNetScorer, StubBackend
 from reglens.validation.dataset import LabeledVariant, load_labeled_variants
-from reglens.validation.harness import annotation_baseline, default_score, evaluate
+from reglens.validation.harness import (
+    annotation_baseline,
+    default_score,
+    evaluate,
+    evaluate_batched,
+)
 from reglens.validation.metrics import roc_auc, roc_curve
 
 
@@ -136,6 +141,25 @@ class TestEvaluate:
         report = evaluate(variants, self._scorer(), genome_path=fa)
         pts = report.roc_points()
         assert pts is not None and len(pts[0]) == len(pts[1])
+
+    def test_batched_matches_per_variant(self, val_genome):
+        fa, seq = val_genome
+        variants = [_labeled(seq, p, lab, 0) for p, lab in
+                    [(20, 1), (30, 1), (40, 0), (50, 0), (60, 1), (70, 0)]]
+        scorer = self._scorer()
+        slow = evaluate(variants, scorer, genome_path=fa)
+        fast = evaluate_batched(variants, scorer, genome_path=fa, chunk_size=2)
+        # Batched must reproduce the per-variant Δ log-counts (and thus AUROC) exactly.
+        for s, f in zip(slow.scored, fast.scored, strict=True):
+            assert s.delta_log_counts == pytest.approx(f.delta_log_counts)
+        assert fast.model_auroc == pytest.approx(slow.model_auroc)
+
+    def test_batched_isolates_errors(self, val_genome):
+        fa, seq = val_genome
+        good = _labeled(seq, 30, 1, 0)
+        bad = LabeledVariant(Variant("chrV", 30, "N", "A"), label=0)  # ref mismatch
+        rep = evaluate_batched([good, bad], self._scorer(), genome_path=fa)
+        assert rep.errors == 1 and any(s.error for s in rep.scored)
 
 
 class TestCurateMpra:
