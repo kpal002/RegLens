@@ -132,6 +132,43 @@ class TestEvaluate:
         assert pts is not None and len(pts[0]) == len(pts[1])
 
 
+class TestCurateMpra:
+    def _rows(self):
+        # Same element 'E1' (matched); mix of releases, SNV/indel, and p-values.
+        return [
+            {"Chrom": "2", "Pos": "100", "Ref": "C", "Alt": "T", "Coefficient": "-0.9",
+             "pValue": "0.001", "Element": "E1", "Release": "GRCh38"},  # positive
+            {"Chrom": "2", "Pos": "101", "Ref": "A", "Alt": "G", "Coefficient": "0.02",
+             "pValue": "0.8", "Element": "E1", "Release": "GRCh38"},   # negative
+            {"Chrom": "2", "Pos": "102", "Ref": "A", "Alt": "G", "Coefficient": "0.3",
+             "pValue": "0.05", "Element": "E1", "Release": "GRCh38"},  # ambiguous → drop
+            {"Chrom": "2", "Pos": "103", "Ref": "A", "Alt": "-", "Coefficient": "0.9",
+             "pValue": "0.001", "Element": "E1", "Release": "GRCh38"}, # deletion → drop
+            {"Chrom": "2", "Pos": "100", "Ref": "C", "Alt": "T", "Coefficient": "-0.9",
+             "pValue": "0.001", "Element": "E1", "Release": "GRCh37"}, # wrong release → drop
+        ]
+
+    def test_labels_and_drops(self):
+        from reglens.validation.build_mpra_benchmark import curate
+        out, stats = curate(self._rows())
+        assert stats.n_pos == 1 and stats.n_neg == 1
+        assert stats.dropped_ambiguous == 1
+        assert stats.dropped_nonsnv == 1  # the deletion
+        assert stats.dropped_wrong_release == 1
+        assert stats.per_element["E1"] == (1, 1)  # (pos, neg) — matched in the same element
+
+    def test_adds_chr_prefix(self):
+        from reglens.validation.build_mpra_benchmark import curate
+        out, _ = curate(self._rows())
+        assert all(o["chrom"].startswith("chr") for o in out)
+        assert all(o["source"] == "E1" for o in out)  # element = match group
+
+    def test_min_abs_effect_filters_positive(self):
+        from reglens.validation.build_mpra_benchmark import curate
+        _, stats = curate(self._rows(), min_abs_effect=1.0)  # the positive has |coef|=0.9
+        assert stats.n_pos == 0  # dropped below effect threshold → becomes ambiguous
+
+
 class TestDefaultScore:
     def test_is_abs_delta(self):
         from reglens.genome import SequenceWindow
