@@ -238,10 +238,24 @@ sat at the low floor — the single agent already got 3/4 right — so the red-t
 null-lowering has little room to show here; the one overconfident null was caught at the
 multi-agent stage before the red-team.)_
 
-**Confidence calibration.** `calibration_table` tabulates confidence (high/med/low) across
-the three strata — strong known mechanism / weak effect / null control. If confidence
-tracks evidence strength (strong→high, null→low), that is measured calibration: the honest
-form of "the agent knows what it doesn't know." _(Pending.)_
+**Confidence calibration.** `calibration_table` tabulates confidence across the three
+strata (assembled from the runs above — reproducible from the interpretation lists):
+
+| stratum | high | medium | low | medium+ |
+|---|---|---|---|---|
+| **strong** (known mechanism, n=11) | 1 | 4 | 6 | **45%** |
+| **weak** (MPRA-positive, engine-quiet, n=8) | 0 | 0 | 8 | 0% |
+| **null** (MPRA-negative, n=8) | 0 | 0 | 8 | 0% |
+
+**The agent never emits `high` or `medium` on a weak or null variant** — no false
+confidence — and `medium+` appears *only* in the known-mechanism stratum (45%), with the
+lone `high` reserved for rs2814778, the one case where every channel *including a
+cell-type-matched model* concurs. Confidence tracks evidence strength monotonically:
+0% → 0% → 45%. (Honest: the strong stratum's own ceiling is set by cell-type match — the 6
+`low`s there are mostly variants for which K562 is the wrong model, which the agent refuses
+to over-call rather than a calibration failure; on the cell-type-matched subset the
+high/low separation is clean.) This is the measured form of "the agent knows what it
+doesn't know."
 
 ## Reproduce
 
