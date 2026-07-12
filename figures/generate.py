@@ -29,6 +29,7 @@ RED, GREY = "#c0392b", "#7f8c8d"
 
 
 def cadd_per_element():
+    """Compute per-element CADD AUROC from the annotated benchmark."""
     rows = [r for r in csv.DictReader(open(BENCH), delimiter="\t") if r["cadd"]]
     by = collections.defaultdict(lambda: ([], []))
     for r in rows:
@@ -38,6 +39,7 @@ def cadd_per_element():
 
 
 def main():
+    """Generate and save the two validation figures."""
     cadd = cadd_per_element()
 
     # Figure 1 — scatter, points colored by lineage, y = x tie line.
