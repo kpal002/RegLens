@@ -259,6 +259,35 @@ to over-call rather than a calibration failure; on the cell-type-matched subset 
 high/low separation is clean.) This is the measured form of "the agent knows what it
 doesn't know."
 
+## What it's *for* — a prospective, falsifiable hypothesis
+
+Everything above shows RegLens *recovering* known mechanisms (trustworthiness). The point of
+the tool is the forward direction: screening noncoding variants for **interpretable,
+uncharacterized** regulatory mechanisms. `reglens/validation/discovery.py` does exactly
+that, under discipline that spends none of the credibility earned above:
+
+- **In-domain only.** It screens blood-trait GWAS variants in **K562, where the engine is
+  validated** (0.716). Speculating in a lineage where the model runs at chance would violate
+  our own calibration finding — so the discipline *constrains where we are allowed to
+  speculate*.
+- **The pipeline selects, not us.** `run_discovery_screen` ranks candidates by the quadrant
+  that matters — large `|ChromBPNet Δ|` + a **concordant** motif + a real GWAS trait +
+  **sparse** literature — and we take what surfaces. Literature sparsity only *flags a
+  candidate for manual checking*; it is never itself a novelty claim.
+- **Novelty is verified by hand** ("to our knowledge, no published mechanism", with the
+  queries and date), never by the literature tool.
+- **The claim is falsifiable** — the write-up names the experiment that would kill it
+  (CRISPRi of the element → reduced gene expression; allele-specific ATAC/MPRA → reduced
+  accessibility for the risk allele).
+- **Calibration is left to do its work** — the surfaced candidate is run through the full
+  multi-agent, and its confidence (expected ~*medium*: engine+motif+GWAS but no
+  eQTL/literature limb) and red-team caveats are reported verbatim.
+
+The starter candidate pool (9 blood-trait GWAS variants) is validated live via Ensembl; the
+prospective hypothesis itself is written up from the Colab screen output plus a manual
+literature check, using [`docs/prospective_hypothesis.md`](docs/prospective_hypothesis.md).
+_(Screen + hypothesis to be run on Colab.)_
+
 ## Reproduce
 
 ```bash
