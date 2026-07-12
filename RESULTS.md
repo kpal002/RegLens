@@ -171,7 +171,9 @@ that tally hides the actual result, so split by *what the engine handed the agen
 
 So the biconditional holds where it counts: **the agent names a mechanism iff the motif
 channel fires with a concordant Δ, and confabulates never** — in three arms and 24
-deliberations. Two further honest points fall out: (1) **confidence is corroboration-gated
+deliberations. With 0 events in 24 trials, the *rule of three* puts a **95% upper bound on
+the true confabulation rate of 3/24 ≈ 12%** — small-n, stated honestly, not hidden. Two
+further honest points fall out: (1) **confidence is corroboration-gated
 and *capped* for this benchmark** — MPRA saturation-mutagenesis variants have no rsid /
 eQTL / GWAS / literature by construction, so the agent structurally cannot reach *high*
 confidence on them; only the single strongest fully-concordant case reached *medium*
@@ -280,10 +282,43 @@ python -m reglens.validation.cadd remote data/benchmarks/kircher_mpra_grch38.tsv
 python figures/generate_crossover.py
 ```
 
+## Limitations
+
+Stated plainly, because the honesty *is* the contribution:
+
+- **One cell type per model.** Each ChromBPNet model is a single cell type (K562, HepG2).
+  A variant outside that lineage gets no matched sequence signal — the source of the
+  calibration `low`s on the liver/breast/cardiac known mechanisms. Coverage scales only by
+  adding models.
+- **Motif-library ceiling.** The bundled JASPAR subset caps how often a mechanism can be
+  *named*: variants with a strong accessibility Δ but no motif above threshold yield "no TF
+  named" (the null-control "missed" positives; 2 of the 3 recovery TF non-hits). This is a
+  library gap, not a reasoning gap — but it bounds the mechanism-recovery rate.
+- **LD and causality unresolved.** The agent flags LD confounding but cannot resolve which
+  variant in a haplotype block is causal; every interpretation is an association-grounded
+  *hypothesis*, not proof of causation.
+- **MPRA-vs-endogenous modality gap.** The benchmark labels come from episomal MPRA
+  (reporter expression); ChromBPNet predicts *endogenous* chromatin accessibility. A
+  variant can be MPRA-significant without changing predicted accessibility — part of why
+  the engine (~0.62 AUROC) and the agent miss real positives.
+- **Hepatic arm underpowered.** The crossover's hepatic advantage (+0.030, 95% CI
+  [−0.015, +0.069]) is directional but not significant at the element level (n=7); the
+  double dissociation rests on the strong hematopoietic arm plus the per-element extremes.
+- **Small n throughout.** Agent experiments are deliberately small — null control 24
+  deliberations (95% upper bound on confabulation ≈12%, rule of three), ablation n=8,
+  recovery n=11 — so effects are reported with their bounds and read as indicative, not
+  definitive. Confidence on corroboration-free synthetic variants is structurally capped
+  (no rsID/eQTL/GWAS/literature), so the "strong" calibration stratum understates the
+  cell-type-matched case.
+
+None of these are hidden in the claims above; each is called out where it applies.
+
 ## Status
 
 Engine validation, CADD baseline, cell-type stratification, and the K562-vs-HepG2
-crossover (with bootstrap CIs) are all **complete**. What's deliberately *not* claimed:
-the hepatic arm of the crossover is directional but not significant at the element level
-(see caveat above), and the agent layer is validated separately (mechanism recovery +
-red-team), not by AUROC.
+crossover (with bootstrap CIs) are all **complete**, as is the full agent-validation suite
+(null-control biconditional, known-mechanism recovery, architecture ablation, confidence
+calibration). What's deliberately *not* claimed: the hepatic arm of the crossover is
+directional but not significant at the element level, and the agent layer is validated
+separately (recovery + ablation + calibration + red-team), never by the engine's AUROC.
+See **Limitations** for the full list.
