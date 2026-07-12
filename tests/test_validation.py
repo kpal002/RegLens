@@ -252,6 +252,12 @@ class TestCaddMerge:
         )
         scores = load_cadd_scores(cadd)
         assert scores[("2", "100", "C", "T")] == 22.4
+        out = tmp_path / "out.tsv"
+        n, total = annotate_benchmark(bench, cadd, out)
+        assert (n, total) == (1, 2)
+        lvs = load_labeled_variants(out)
+        assert lvs[0].annotations["cadd"] == 22.4
+        assert "cadd" not in lvs[1].annotations  # unmatched → empty, not loaded
 
     def test_load_cadd_skips_malformed_rows(self, tmp_path):
         from reglens.validation.cadd import load_cadd_scores
@@ -265,12 +271,6 @@ class TestCaddMerge:
         )
         scores = load_cadd_scores(cadd)
         assert scores == {("1", "100", "G", "A"): 14.7}
-        out = tmp_path / "out.tsv"
-        n, total = annotate_benchmark(bench, cadd, out)
-        assert (n, total) == (1, 2)
-        lvs = load_labeled_variants(out)
-        assert lvs[0].annotations["cadd"] == 22.4
-        assert "cadd" not in lvs[1].annotations  # unmatched → empty, not loaded
 
     def test_export_vcf(self, tmp_path):
         from reglens.validation.cadd import export_vcf
@@ -313,6 +313,7 @@ class TestLineage:
 class TestCaddGzip:
     def test_load_cadd_handles_gzip(self, tmp_path):
         import gzip
+
         from reglens.validation.cadd import load_cadd_scores
         content = ("##CADD GRCh38-v1.7\n#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\n"
                    "2\t100\tC\tT\t1.5\t22.4\n")
