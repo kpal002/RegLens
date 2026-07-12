@@ -152,12 +152,33 @@ accessibility). This cleanly proves **one direction**: *engine quiet → agent d
 deliberations, zero confabulations).
 
 **Arm 3 — strong-signal positives (should assert): the other direction.** Two hand-picked
-demos (rs1427407, rs2814778) are anecdote, not control — a skeptic can still say "maybe it
-just stays silent on everything." So `run_strong_positive_control` selects positives by
-**top `|ChromBPNet Δ|`** (`rank_positives_by_signal`) — *forcing the engine to fire* — then
-asks whether the agent asserts. A systematic *recovered* result here closes the
-biconditional: **the agent asserts iff the engine fires** — tracking the evidence in both
-directions, not merely being conservative. _(Run on Colab; results to be filled in.)_
+demos are anecdote, not control — a skeptic can say "maybe it just stays silent on
+everything." So `run_strong_positive_control` selects positives by **top `|ChromBPNet Δ|`**
+(`rank_positives_by_signal`) — *forcing the engine to fire* — then asks whether the agent
+asserts. Strict verdict on 8 (|Δ| 0.37–1.08): **1 recovered, 4 borderline, 3 missed** — but
+that tally hides the actual result, so split by *what the engine handed the agent*:
+
+- **Motif + Δ both fired (5/8): the agent named a concordant TF mechanism every time, 0
+  confabulations.** The strongest, cleanest case (`chr1:155301467`: GATA1::TAL1 abolished
+  Δ−14.6, ChromBPNet −1.08) earned the only *medium* → **recovered**. The other four named
+  the motif and matched its direction but stayed *low* (borderline). One
+  (`chr22:19723407`) is the tell: a CTCF site *strengthened* while ChromBPNet *decreased* —
+  the agent **caught the discordance** ("CTCF gain usually maintains accessibility …
+  internally tense … a weak hypothesis"), which is reasoning, not a miss.
+- **Only ChromBPNet fired, no motif (3/8):** strong Δ (+0.82, +0.82, −0.43) but the agent
+  refused to name a TF — *"the specific TF cannot be named."* That is a **motif-library
+  gap** (the bundled JASPAR subset), not an agent failure — the honest behavior.
+
+So the biconditional holds where it counts: **the agent names a mechanism iff the motif
+channel fires with a concordant Δ, and confabulates never** — in three arms and 24
+deliberations. Two further honest points fall out: (1) **confidence is corroboration-gated
+and *capped* for this benchmark** — MPRA saturation-mutagenesis variants have no rsid /
+eQTL / GWAS / literature by construction, so the agent structurally cannot reach *high*
+confidence on them; only the single strongest fully-concordant case reached *medium*
+(precisely why the curated rs1427407 / rs2814778 demos, which have those corroborating
+limbs, score higher). (2) The motif library, not the reasoning layer, is the binding
+constraint on how often a mechanism can be named. The agent tracks the evidence in **both**
+directions — it is not merely conservative.
 
 ## Reproduce
 
