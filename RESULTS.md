@@ -180,6 +180,32 @@ limbs, score higher). (2) The motif library, not the reasoning layer, is the bin
 constraint on how often a mechanism can be named. The agent tracks the evidence in **both**
 directions — it is not merely conservative.
 
+## Agent reasoning — recovery, ablation, calibration
+
+Three more experiments (`reglens/validation/agent_eval.py`) that validate the *reasoning
+layer* directly — turning "we built a multi-agent architecture" into "here is what it
+buys."
+
+**Known-mechanism recovery.** A curated set of **11 characterized regulatory variants**
+(rs1427407 BCL11A/GATA1, rs2814778 Duffy/GATA1, rs12740374 SORT1/C-EBP, rs6983267
+MYC/TCF7L2, rs4988235 LCT/Oct-1, rs1421085 IRX3/ARID5B, rs12821256 KITLG/LEF1, rs2168101
+LMO1/GATA3, rs339331 RFX6/HOXB13, rs6801957 SCN5A/TBX5, rs4784227 TOX3/FOXA1) — each with an
+established **TF / gene / trait** and a primary PMID. Coordinates are resolved from the rsID
+via Ensembl (`resolve_variant`, all 11 validated live), so the set carries no hand-typed
+positions. `run_recovery` scores whether the agent names the right TF/gene/trait —
+_"recovered the TF in N/11"_ is a real agent metric, not two hand-picked demos. _(Run on
+Colab; numbers to be filled in.)_
+
+**Architecture ablation.** `run_ablation` runs **single-agent vs multi-agent−redteam vs
+full multi-agent** over the *same* evidence bundle, across strong/weak/null strata, and
+reports what changes — in particular, does the red-team correctly **lower confidence** on
+the weak/null cases? That is the direct evidence for the Claude-use claim. _(Pending.)_
+
+**Confidence calibration.** `calibration_table` tabulates confidence (high/med/low) across
+the three strata — strong known mechanism / weak effect / null control. If confidence
+tracks evidence strength (strong→high, null→low), that is measured calibration: the honest
+form of "the agent knows what it doesn't know." _(Pending.)_
+
 ## Reproduce
 
 ```bash
