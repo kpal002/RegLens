@@ -89,3 +89,42 @@ class TestRunAndRank:
         assert len(dsc.BLOOD_TRAIT_CANDIDATES) >= 6
         for c in dsc.BLOOD_TRAIT_CANDIDATES:
             assert c.rsid.startswith("rs")
+
+
+class _GwasClient:
+    def __init__(self, snps):
+        self.snps = snps
+
+    def get_json(self, url, params=None):
+        return {"_embedded": {"singleNucleotidePolymorphisms": self.snps}}
+
+
+class TestFetchGwas:
+    def _snps(self):
+        return [
+            {"rsId": "rs1", "functionalClass": "intron_variant"},
+            {"rsId": "rs2", "functionalClass": "intergenic_variant"},
+            {"rsId": "rs3", "functionalClass": "missense_variant"},   # coding → dropped
+            {"rsId": "rs2", "functionalClass": "intron_variant"},     # dup → dropped
+            {"rsId": "rs4", "functionalClass": None},                 # unannotated → kept
+        ]
+
+    def test_filters_coding_and_dedupes(self):
+        cands = dsc.fetch_gwas_variants("platelet count", client=_GwasClient(self._snps()))
+        rsids = {c.rsid for c in cands}
+        assert rsids == {"rs1", "rs2", "rs4"}          # rs3 coding, rs2 deduped
+        assert all(c.rsid.startswith("rs") for c in cands)
+
+    def test_cap_and_deterministic(self):
+        snps = [{"rsId": f"rs{i}", "functionalClass": "intron_variant"} for i in range(50)]
+        a = dsc.fetch_gwas_variants("platelet count", client=_GwasClient(snps),
+                                    max_variants=10, seed=1)
+        b = dsc.fetch_gwas_variants("platelet count", client=_GwasClient(snps),
+                                    max_variants=10, seed=1)
+        assert len(a) == 10
+        assert [c.rsid for c in a] == [c.rsid for c in b]   # seeded → reproducible
+
+    def test_keep_coding_when_disabled(self):
+        cands = dsc.fetch_gwas_variants("platelet count", client=_GwasClient(self._snps()),
+                                        noncoding_only=False)
+        assert "rs3" in {c.rsid for c in cands}

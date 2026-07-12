@@ -28,13 +28,31 @@ from the screen output plus a manual literature check (see ``render_screen`` gui
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from typing import Any
 
 from reglens.genome import Variant
 from reglens.orchestrator import analyze_variant
-from reglens.tools._http import HttpClient
+from reglens.tools._http import HttpClient, resolve_client
 from reglens.validation.agent_eval import resolve_variant
+
+#: GWAS Catalog REST endpoint that lists SNPs for a trait (by trait *name*).
+GWAS_SNP_SEARCH = (
+    "https://www.ebi.ac.uk/gwas/rest/api/singleNucleotidePolymorphisms/"
+    "search/findByEfoTrait"
+)
+#: Blood/hematopoietic GWAS trait names accepted by ``findByEfoTrait``.
+BLOOD_TRAITS: tuple[str, ...] = (
+    "platelet count", "erythrocyte count", "hemoglobin measurement",
+    "reticulocyte count", "monocyte count", "neutrophil count",
+    "mean corpuscular volume", "platelet volume",
+)
+# functionalClass substrings we treat as protein-coding (excluded from the noncoding pool).
+_CODING_CLASSES = (
+    "missense", "synonymous", "stop", "frameshift", "coding_sequence", "inframe",
+    "protein_altering",
+)
 
 #: Trait substrings that count as a blood / hematopoietic GWAS phenotype (in-domain).
 BLOOD_TRAIT_TERMS: tuple[str, ...] = (
@@ -78,6 +96,53 @@ BLOOD_TRAIT_CANDIDATES: list[DiscoveryCandidate] = [
     DiscoveryCandidate("rs342293", "PIK3CG intergenic; platelet count / volume"),
     DiscoveryCandidate("rs1354034", "ARHGEF3; platelet count"),
 ]
+
+
+def fetch_gwas_variants(
+    trait: str,
+    client: HttpClient | None = None,
+    *,
+    max_variants: int = 60,
+    seed: int = 0,
+    noncoding_only: bool = True,
+) -> list[DiscoveryCandidate]:
+    """Pull a trait's GWAS variants from the GWAS Catalog as screen candidates.
+
+    This makes the screen **unbiased**: the pool is whatever the GWAS Catalog associates
+    with the trait, not a hand-picked list — so the pipeline (not the curator) selects the
+    hypothesis. Coordinates are still resolved per-rsID via Ensembl at screen time.
+
+    Args:
+        trait: A GWAS Catalog trait name (see :data:`BLOOD_TRAITS`), e.g. ``"platelet
+            count"``.
+        client: HTTP client; defaults to the shared urllib client.
+        max_variants: Cap after a seeded shuffle (representative sample of the pool).
+        seed: Shuffle seed (reproducible).
+        noncoding_only: Drop protein-coding ``functionalClass`` variants (we interpret
+            *regulatory* variants).
+
+    Returns:
+        Deduplicated :class:`DiscoveryCandidate` s (rsID + note), capped at ``max_variants``.
+    """
+    http = resolve_client(client)
+    data = http.get_json(GWAS_SNP_SEARCH, {"efoTrait": trait})
+    snps = (data or {}).get("_embedded", {}).get("singleNucleotidePolymorphisms", [])
+
+    seen: set[str] = set()
+    candidates: list[DiscoveryCandidate] = []
+    for snp in snps:
+        rsid = snp.get("rsId")
+        if not rsid or not rsid.startswith("rs") or rsid in seen:
+            continue
+        fclass = (snp.get("functionalClass") or "").lower()
+        if noncoding_only and any(c in fclass for c in _CODING_CLASSES):
+            continue
+        seen.add(rsid)
+        candidates.append(
+            DiscoveryCandidate(rsid, note=f"{trait}; {fclass or 'unannotated'}")
+        )
+    random.Random(f"{seed}:{trait}").shuffle(candidates)
+    return candidates[:max_variants]
 
 
 @dataclass
