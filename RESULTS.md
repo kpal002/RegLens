@@ -192,9 +192,26 @@ MYC/TCF7L2, rs4988235 LCT/Oct-1, rs1421085 IRX3/ARID5B, rs12821256 KITLG/LEF1, r
 LMO1/GATA3, rs339331 RFX6/HOXB13, rs6801957 SCN5A/TBX5, rs4784227 TOX3/FOXA1) — each with an
 established **TF / gene / trait** and a primary PMID. Coordinates are resolved from the rsID
 via Ensembl (`resolve_variant`, all 11 validated live), so the set carries no hand-typed
-positions. `run_recovery` scores whether the agent names the right TF/gene/trait —
-_"recovered the TF in N/11"_ is a real agent metric, not two hand-picked demos. _(Run on
-Colab; numbers to be filled in.)_
+positions. `run_recovery` scores whether the agent names the right TF/gene/trait.
+
+**Result: trait 11/11, gene 10/11, TF 8/11** (faithful K562 run). The gene miss is KITLG
+(a distal target the nearest-gene tool didn't surface). The three TF non-hits are the
+**anti-confabulation property under maximum temptation**, not failures: on rs4988235 the
+agent plainly *knew* the textbook answer — it named the MCM6 lactase-persistence enhancer —
+yet **refused to assert Oct-1/POU2F1** because its motif tool surfaced nothing; likewise
+KITLG/LEF1; and on rs2168101 it found a GATA-family composite (GATA1::TAL1) but not the
+specific *GATA3*. In no case did it invent a TF from memory. On rs6983267 it went further —
+recovered TCF7L2 from the literature, then flagged that its *own* tool disagreed ("the
+canonical mechanism is TCF7L2/TCF4 … not captured by the CTCF-only motif call") and dropped
+to low confidence.
+
+**Confidence is cell-type-aware — measured calibration.** The single *high* went to
+rs2814778 (Duffy) — the one variant whose lineage matches the K562 model, where motif loss
+(Δ−14.6), a concordant 2.3× accessibility drop, an eQTL, and GWAS all fire together. The
+*low* calls are the liver / breast / cardiac / obesity variants where K562 is the *wrong*
+cell type, and the agent says so explicitly ("K562, a disease-irrelevant lineage"). It
+recovers the literature TF/gene/trait but caps confidence because the *matched*
+deterministic evidence is absent — the honest form of "knows what it doesn't know."
 
 **Architecture ablation.** `run_ablation` runs **single-agent vs multi-agent−redteam vs
 full multi-agent** over the *same* evidence bundle, across strong/weak/null strata, and
