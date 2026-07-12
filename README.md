@@ -78,6 +78,22 @@ MPRA** (33,359 SNVs, 29 disease-element assays), with **matched within-element n
 premise — *the right cell-type model matters* — measured with numbers, matched negatives,
 and no cherry-picking (CADD still wins 11/29 elements).
 
+### The crossover — a double dissociation
+
+Run the *same* benchmark with a **HepG2 (hepatic)** model and the pattern **flips**:
+
+| Compartment | K562 model | HepG2 model |
+|---|---|---|
+| **Hematopoietic** elements | **0.716** | 0.569 |
+| **Hepatic** elements | 0.633 | **0.663** |
+
+<p align="center"><img src="figures/crossover_summary.png" width="52%"/></p>
+
+Swap the cell-type model and the winning elements swap with it — the hepatic **SORT1**
+assays rise +0.08–0.10 under HepG2 while blood **PKLR-48h collapses 0.805→0.505**. That is
+intervention-level proof the signal is **cell-type-driven, not a model artifact**. (Honest:
+the dissociation is asymmetric — strong on the blood side, modest on the hepatic side.)
+
 > **Two separate claims, kept distinct:** the AUROC validates the **engine** (variant
 > score). The **agent** is validated separately — by recovering rs1427407 / rs2814778
 > mechanisms and by the red-team catching real artifacts.

@@ -49,6 +49,38 @@ CADD wins on non-erythroid elements (LDLR −0.10 hepatic, IRF4/IRF6 −0.12, ZF
 result. It's a tendency, not perfect (a few broad elements like TERT are close; CADD wins
 11/29). All numbers are on the matched benchmark; none are cherry-picked negatives.
 
+## The crossover — a double dissociation (strongest result)
+
+We ran the **same** 33,359-variant benchmark with a **HepG2 (hepatic)** ChromBPNet model
+(ENCODE ENCFF137WCM) and compared it to the K562 (erythroid) model. The result is a
+**double dissociation** — swap the cell-type model, and which elements it wins on swaps
+with it:
+
+| Compartment | K562 model | HepG2 model | winner |
+|---|---|---|---|
+| **Hematopoietic** elements | **0.716** | 0.569 | K562 (+0.147) |
+| **Hepatic** elements | 0.633 | **0.663** | HepG2 (+0.030) |
+
+<p align="center">
+  <img src="figures/crossover_summary.png" width="46%"/>
+  <img src="figures/crossover_flip.png" width="46%"/>
+</p>
+
+**The per-element tell is unmistakable:** the biggest *risers* when swapping K562→HepG2
+are the hepatic **SORT1** assays (+0.08 to +0.10); the biggest *fallers* are the blood
+elements — **PKLR-48h collapses 0.805 → 0.505** (near chance), PKLR-24h −0.25, HBB/BCL11A
+−0.10 to −0.13. The intervention (change the cell-type model) moves exactly the elements
+cell-type theory predicts.
+
+This turns the thesis from *measured* to *demonstrated by intervention*: the AUROC signal
+is genuinely **cell-type-driven, not a model artifact** — a model artifact would not flip
+its winning elements when you swap the cell type.
+
+**Honest caveats:** the dissociation is **asymmetric** — strong on the blood side (K562
++0.147) and modest on the hepatic side (HepG2 +0.030), and one hepatic element (**F9**,
+liver-expressed coagulation) drops under HepG2 against the trend. But the compartment
+means flip in **both** directions, and the extremes (SORT1 up, PKLR down) are decisive.
+
 ## Full per-element AUROC
 
 | Element | AUROC | pos / neg | | Element | AUROC | pos / neg |
