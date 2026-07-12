@@ -308,3 +308,15 @@ class TestLineage:
         assert g["hematopoietic"]["mean_auroc"] == pytest.approx(0.65)
         assert g["other"]["n"] == 2
         assert g["other"]["mean_auroc"] == pytest.approx(0.46)
+
+
+class TestCaddGzip:
+    def test_load_cadd_handles_gzip(self, tmp_path):
+        import gzip
+        from reglens.validation.cadd import load_cadd_scores
+        content = ("##CADD GRCh38-v1.7\n#Chrom\tPos\tRef\tAlt\tRawScore\tPHRED\n"
+                   "2\t100\tC\tT\t1.5\t22.4\n")
+        gz = tmp_path / "cadd.tsv.gz"
+        with gzip.open(gz, "wt") as f:
+            f.write(content)
+        assert load_cadd_scores(gz) == {("2", "100", "C", "T"): 22.4}

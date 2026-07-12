@@ -16,7 +16,23 @@ from __future__ import annotations
 
 import argparse
 import csv
+import gzip
+import io
 import os
+from typing import TextIO
+
+
+def _open_maybe_gzip(path: str | os.PathLike[str]) -> TextIO:
+    """Open a text file, transparently decompressing if it is gzip (by magic bytes).
+
+    CADD downloads are ``.tsv.gz``, but browsers sometimes rename or pre-decompress
+    them — so detect gzip from the content, not the extension.
+    """
+    with open(path, "rb") as raw:
+        is_gzip = raw.read(2) == b"\x1f\x8b"
+    if is_gzip:
+        return io.TextIOWrapper(gzip.open(path, "rb"), encoding="utf-8")
+    return open(path, encoding="utf-8", newline="")
 
 
 def _norm_chrom(chrom: str) -> str:
@@ -38,7 +54,7 @@ def load_cadd_scores(cadd_tsv: str | os.PathLike[str]) -> dict[tuple[str, str, s
         Mapping from normalized ``(chrom, pos, ref, alt)`` to PHRED CADD score.
     """
     lookup: dict[tuple[str, str, str, str], float] = {}
-    with open(cadd_tsv, newline="") as handle:
+    with _open_maybe_gzip(cadd_tsv) as handle:
         # Skip leading '##' comment lines; the header line may start with '#Chrom'.
         lines = [ln for ln in handle if not ln.startswith("##")]
     if lines and lines[0].startswith("#"):
