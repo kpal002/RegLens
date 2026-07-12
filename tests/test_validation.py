@@ -350,3 +350,24 @@ class TestCrossover:
             "HepG2": {"BCL11A": 0.54, "LDLR": 0.55},
         }
         assert is_double_dissociation(crossover_summary(per), "K562", "HepG2") is False
+
+    def test_bootstrap_crossover_ci(self):
+        from reglens.validation.lineage import bootstrap_crossover_ci
+        # Strong, consistent hematopoietic win; hepatic win present but smaller/noisier.
+        per = {
+            "K562":  {"BCL11A": 0.74, "HBB": 0.72, "HBG1": 0.70,
+                      "LDLR": 0.60, "SORT1": 0.58, "F9": 0.65},
+            "HepG2": {"BCL11A": 0.55, "HBB": 0.54, "HBG1": 0.56,
+                      "LDLR": 0.66, "SORT1": 0.64, "F9": 0.55},
+        }
+        ci = bootstrap_crossover_ci(per, "K562", "HepG2", n_boot=2000, seed=1)
+        hema, hep = ci["hematopoietic"], ci["hepatic"]
+        # Signed so positive = own model wins; point estimate == mean of per-element deltas.
+        assert hema["delta"] == pytest.approx((0.19 + 0.18 + 0.14) / 3, abs=1e-9)
+        assert hema["lo"] <= hema["delta"] <= hema["hi"]
+        assert hema["p_wrong_sign"] == 0.0        # every hema element favors K562
+        assert hep["n"] == 3.0
+        assert hep["lo"] <= hep["delta"] <= hep["hi"]
+        # Deterministic under a fixed seed.
+        again = bootstrap_crossover_ci(per, "K562", "HepG2", n_boot=2000, seed=1)
+        assert again["hepatic"]["lo"] == hep["lo"]

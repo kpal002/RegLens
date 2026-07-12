@@ -91,8 +91,12 @@ Run the *same* benchmark with a **HepG2 (hepatic)** model and the pattern **flip
 
 Swap the cell-type model and the winning elements swap with it — the hepatic **SORT1**
 assays rise +0.08–0.10 under HepG2 while blood **PKLR-48h collapses 0.805→0.505**. That is
-intervention-level proof the signal is **cell-type-driven, not a model artifact**. (Honest:
-the dissociation is asymmetric — strong on the blood side, modest on the hepatic side.)
+intervention-level proof the signal is **cell-type-driven, not a model artifact**.
+
+*Honest, with CIs (cluster bootstrap over elements):* the blood side is robust —
+**+0.147, 95% CI [+0.072, +0.226]** — while the hepatic side is directional but not
+significant — **+0.030, 95% CI [−0.015, +0.069]**. The double dissociation is carried by the
+strong hematopoietic arm and the per-element extremes; the hepatic mean is suggestive only.
 
 > **Two separate claims, kept distinct:** the AUROC validates the **engine** (variant
 > score). The **agent** is validated separately — by recovering rs1427407 / rs2814778

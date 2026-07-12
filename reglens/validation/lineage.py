@@ -107,6 +107,68 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
+def bootstrap_crossover_ci(
+    per_model: dict[str, dict[str, float]],
+    hema_model: str,
+    hep_model: str,
+    n_boot: int = 10000,
+    seed: int = 0,
+    ci: float = 0.95,
+) -> dict[str, dict[str, float]]:
+    """Cluster-bootstrap CI for the crossover deltas, resampling **elements**.
+
+    The element is the correct resampling unit (variants within one element are
+    correlated), so this quantifies how robust each compartment's advantage is to
+    *which elements* are included. It does **not** capture within-element sampling
+    noise — that would need per-variant scores, not the per-element AUROCs here.
+
+    The delta is signed so positive = the compartment's own model wins:
+    hematopoietic ``= hema_model - hep_model``; hepatic ``= hep_model - hema_model``.
+
+    Args:
+        per_model: ``{model_name: {element: auroc}}`` (K562 and HepG2).
+        hema_model: Name of the hematopoietic (K562) model.
+        hep_model: Name of the hepatic (HepG2) model.
+        n_boot: Bootstrap resamples per compartment.
+        seed: RNG seed (reproducible).
+        ci: Central interval mass (0.95 → 2.5%/97.5% percentiles).
+
+    Returns:
+        ``{compartment: {"delta", "lo", "hi", "p_wrong_sign", "n"}}`` — ``delta`` is
+        the point estimate, ``lo``/``hi`` the percentile CI, ``p_wrong_sign`` the
+        bootstrap fraction where the compartment's own model did **not** win, and
+        ``n`` the number of elements.
+    """
+    import random
+
+    lo_q, hi_q = (1 - ci) / 2, 1 - (1 - ci) / 2
+    out: dict[str, dict[str, float]] = {}
+    for compartment, test in _LINEAGE_TESTS.items():
+        elements = [
+            e for e in per_model[hema_model]
+            if test(e) and per_model[hema_model].get(e) is not None
+            and per_model[hep_model].get(e) is not None
+        ]
+        own, other = (hema_model, hep_model) if compartment == "hematopoietic" else (hep_model, hema_model)
+        deltas_point = [per_model[own][e] - per_model[other][e] for e in elements]
+        point = _mean(deltas_point) or 0.0
+        rng = random.Random(f"{seed}:{compartment}")
+        boot = []
+        for _ in range(n_boot):
+            sample = [deltas_point[rng.randrange(len(deltas_point))] for _ in deltas_point]
+            boot.append(sum(sample) / len(sample))
+        boot.sort()
+        wrong = sum(1 for b in boot if b <= 0) / len(boot)
+        out[compartment] = {
+            "delta": point,
+            "lo": boot[int(lo_q * (len(boot) - 1))],
+            "hi": boot[int(hi_q * (len(boot) - 1))],
+            "p_wrong_sign": wrong,
+            "n": float(len(elements)),
+        }
+    return out
+
+
 def stratify(
     per_element: list[tuple[str, float | None, int, int]],
 ) -> dict[str, dict[str, object]]:

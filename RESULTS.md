@@ -76,10 +76,23 @@ This turns the thesis from *measured* to *demonstrated by intervention*: the AUR
 is genuinely **cell-type-driven, not a model artifact** — a model artifact would not flip
 its winning elements when you swap the cell type.
 
-**Honest caveats:** the dissociation is **asymmetric** — strong on the blood side (K562
-+0.147) and modest on the hepatic side (HepG2 +0.030), and one hepatic element (**F9**,
-liver-expressed coagulation) drops under HepG2 against the trend. But the compartment
-means flip in **both** directions, and the extremes (SORT1 up, PKLR down) are decisive.
+**Honest caveats — quantified.** A cluster bootstrap (10,000 resamples over the *elements*
+in each compartment — the correct unit, since variants within an element are correlated)
+puts a CI on each side's advantage:
+
+| Compartment | own-model Δ AUROC | 95% CI | robust? |
+|---|---|---|---|
+| **Hematopoietic** (K562 wins) | **+0.147** | **[+0.072, +0.226]** | ✅ CI clears zero (p wrong-sign = 0.00) |
+| **Hepatic** (HepG2 wins) | +0.030 | [−0.015, +0.069] | ⚠️ crosses zero (p wrong-sign = 0.09) |
+
+So the dissociation is **asymmetric and honestly reported**: the blood side is robust; the
+hepatic side is **directional** — 91% of resamples favor HepG2 — but *not* distinguishable
+from zero at the element level (n=7, and one element, **F9** liver-coagulation, drops under
+HepG2 against the trend). The double dissociation is carried by the strong hematopoietic
+arm plus the decisive per-element extremes (SORT1 up, PKLR-48h 0.805→0.505 down); the
+hepatic-arm mean is suggestive, not significant. (The CI reflects between-element variance
+only — per-variant sampling noise would need the raw scores. Reproduce:
+`reglens.validation.lineage.bootstrap_crossover_ci`.)
 
 ## Full per-element AUROC
 
@@ -106,10 +119,18 @@ means flip in **both** directions, and the extremes (SORT1 up, PKLR down) are de
 ```bash
 # build the benchmark (matched negatives):
 python -m reglens.validation.build_mpra_benchmark -o data/benchmarks/kircher_mpra_grch38.tsv
-# run on a GPU box (hg38 + ENCODE model), see reglens/validation/run_validation.ipynb
+# CADD baseline — annotate the cadd column from CADD's pre-scored whole-genome file:
+python -m reglens.validation.cadd remote data/benchmarks/kircher_mpra_grch38.tsv \
+       -o data/benchmarks/kircher_mpra_grch38.cadd.tsv
+# run model scoring on a GPU box (hg38 + ENCODE model): reglens/validation/run_validation.ipynb
+# crossover figures + bootstrap CIs:
+python figures/generate_crossover.py
 ```
 
-## Remaining
+## Status
 
-- **CADD baseline** — annotate a `cadd` column (CADD web service → `validation/cadd.py`)
-  to report the model-vs-CADD comparison and the "beats CADD" claim.
+Engine validation, CADD baseline, cell-type stratification, and the K562-vs-HepG2
+crossover (with bootstrap CIs) are all **complete**. What's deliberately *not* claimed:
+the hepatic arm of the crossover is directional but not significant at the element level
+(see caveat above), and the agent layer is validated separately (mechanism recovery +
+red-team), not by AUROC.

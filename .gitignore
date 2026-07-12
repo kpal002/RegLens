@@ -30,3 +30,7 @@ data/models/
 
 # Local secrets (API keys) — never commit
 .env
+
+# CADD whole-genome source (multi-GB, download on demand)
+whole_genome_SNVs.tsv.gz
+whole_genome_SNVs.tsv.gz.tbi

@@ -10,7 +10,11 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 
 from reglens.report.plot import plot_crossover
-from reglens.validation.lineage import is_hematopoietic, is_hepatic
+from reglens.validation.lineage import (
+    bootstrap_crossover_ci,
+    is_hematopoietic,
+    is_hepatic,
+)
 
 K562 = {"SORT1.2":0.584,"FOXE1":0.430,"SORT1-flip":0.638,"SORT1":0.586,"BCL11A":0.620,
 "ZFAND3":0.637,"MYCrs6983267":0.634,"UC88":0.709,"MSMB":0.606,"TCF7L2":0.487,"RET":0.546,
@@ -55,6 +59,13 @@ def main():
         els = [e for e in K562 if pred(e)]
         print(f"{grp}: K562 {sum(K562[e] for e in els)/len(els):.3f} "
               f"HepG2 {sum(HEPG2[e] for e in els)/len(els):.3f}  ({', '.join(els)})")
+
+    # Cluster-bootstrap CI on the compartment deltas (resampling elements).
+    print("\nBootstrap CI (own-model advantage, resampling elements):")
+    ci = bootstrap_crossover_ci({"K562": K562, "HepG2": HEPG2}, "K562", "HepG2")
+    for comp, d in ci.items():
+        print(f"  {comp:14s} n={int(d['n'])}  Δ=+{d['delta']:.3f}  "
+              f"95% CI [{d['lo']:+.3f}, {d['hi']:+.3f}]  p(wrong sign)={d['p_wrong_sign']:.2f}")
 
 
 if __name__ == "__main__":
