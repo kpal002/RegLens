@@ -114,62 +114,64 @@ only — per-variant sampling noise would need the raw scores. Reproduce:
 | TCF7L2 | 0.487 | 281 / 1212 | | MYCrs11986220 | 0.463 | 63 / 1152 |
 | FOXE1 | 0.430 | 65 / 1511 | | | | |
 
-## Agent null control — does it confabulate on non-functional variants?
+## Agent null control — does it confabulate, and does it track the evidence?
 
 The question almost nobody tests: handed an MPRA **negative** (non-functional, yet sitting
 in or beside an *active* regulatory element of a famous gene, in the matching cell type),
 does the multi-agent invent a plausible-sounding mechanism, or correctly decline?
 
-`reglens/validation/null_control.py` draws negatives (`label == 0`) from the same matched
-benchmark, runs the full specialists → red-team → adjudicator deliberation on each, and
-classifies the adjudicated interpretation by a transparent rubric: **declined** (no
-mechanism asserted, or an explicit "no coherent mechanism"), **borderline** (a mechanism
-named but at *low* confidence), **confabulated** (a specific TF-disruption mechanism
-asserted at *medium/high* confidence).
+`reglens/validation/null_control.py` draws variants from the same matched benchmark, runs
+the full specialists → red-team → adjudicator deliberation on each, and scores a
+**label-neutral behavior** (did it *decline*, *hedge*, or *assert* a mechanism?) against
+ground truth: negatives should decline (asserting = **confabulated** ✗); positives should
+assert (asserting = **recovered** ✓; declining = **missed**). Faithful run: K562 5-fold+RC
+ChromBPNet + motif + genome, 8 negatives and 8 positives across hematopoietic elements.
 
-**Preliminary pilot — 6 hematopoietic negatives, run locally (annotation-only).** The
-sequence signals were deliberately withheld (no ChromBPNet Δ, no motif) — the *hardest*
-confabulation temptation, since the agent has only "this variant overlaps the BCL11A / HBB
-/ PKLR body or a K562 enhancer" to go on:
+**Arm 1 — negatives (should decline): 7/8 declined, 1 borderline, 0 confabulated.** The
+agent never fabricated a mechanism. Even where a motif *was* present it deferred to the
+engine — for an HBG1 negative: *"the A allele forms and the G allele abolishes a GATA1::TAL1
+composite motif … However ChromBPNet predicts essentially no accessibility change (Δ
++0.024) … within model noise … the functional consequence is unresolved."*
 
-| verdict | count | confidence |
-|---|---|---|
-| **declined** | **6 / 6** | all low |
-| borderline | 0 / 6 | — |
-| confabulated | 0 / 6 | — |
+**Arm 2 — random positives (should assert): 0/8 recovered, 6 missed, 2 borderline.** The
+agent *also* declined here — but reading the transcripts, **because the engine was quiet on
+this random draw**, and it refused to assert what the numbers don't support. Most had
+near-noise ChromBPNet Δ (ChromBPNet is only ~0.62 AUROC, so it misses many true positives);
+where accessibility *did* move but no motif cleared threshold (HBB positive, Δ +0.233 ≈
+26%) it still declined a *mechanism*: *"mechanism and target are inferred, not
+established."* The two borderline cases are the tell — a CTCF motif abolished (Δ −5.55) but
+small accessibility change: *"the striking mismatch … suggests the CTCF footprint may be
+biophysically incidental rather than a functional driver."* That is careful reasoning, not
+a miss.
 
-Every call refused to name a TF or assign a mechanism, and grounded the refusal in the
-*missing numbers* — e.g. *"no ChromBPNet Δ log-counts … so no TF-motif disruption can be
-identified … any mechanistic claim rests entirely on genic overlap and external priors,
-not on data in the bundle."* For a negative near the β-globin locus it named and then
-*rejected* the tempting story: *"K562 is an erythroid model, [but] no bundle field
-annotates HBB … so that framing is unsupported speculation."* The red-team flagged the
-absent sequence data as high-severity in every case.
+**The agent is calibrated to the deterministic engine, not to ground truth** — it asserts a
+mechanism only when the numbers fire, so it never confabulates, but it also inherits the
+engine's sensitivity ceiling (plus a real modality gap: an MPRA-significant variant, scored
+on episomal reporter expression, need not change predicted *endogenous* chromatin
+accessibility). This cleanly proves **one direction**: *engine quiet → agent declines* (16
+deliberations, zero confabulations).
 
-**Read honestly.** This shows the agent's mechanism claims are **gated on the
-deterministic layer** — strip the numbers and it declines rather than backfilling from
-gene / cell-type priors. It is a strong *preliminary* result, not the complete control:
-the faithful test — where the negatives' near-zero ChromBPNet Δ and weak-but-present
-motifs *are* in the bundle and the agent could over-read them — runs on Colab through the
-same harness (`run_null_control(..., genome_path=hg38, scorer=k562)`). Reported either way.
-
-**The full picture is the *paired* control** (`run_paired_control`): the same run also
-draws matched **positives** and checks the mirror question — does the agent *recover* a
-confident mechanism on genuinely functional variants? Declining on negatives **and**
-asserting on positives is the discrimination story. It needs the sequence signals present
-(on annotation-only bundles the positives merely *miss* for lack of data), so it runs on
-Colab; the verdict rubric scores each arm (negatives: declined/borderline/**confabulated**;
-positives: **recovered**/borderline/missed).
+**Arm 3 — strong-signal positives (should assert): the other direction.** Two hand-picked
+demos (rs1427407, rs2814778) are anecdote, not control — a skeptic can still say "maybe it
+just stays silent on everything." So `run_strong_positive_control` selects positives by
+**top `|ChromBPNet Δ|`** (`rank_positives_by_signal`) — *forcing the engine to fire* — then
+asks whether the agent asserts. A systematic *recovered* result here closes the
+biconditional: **the agent asserts iff the engine fires** — tracking the evidence in both
+directions, not merely being conservative. _(Run on Colab; results to be filled in.)_
 
 ## Reproduce
 
 ```bash
-# agent null / paired control (faithful run needs hg38 + ChromBPNet model + ANTHROPIC_API_KEY):
-#   from reglens.validation.null_control import run_paired_control, render_paired
+# agent controls (faithful run needs hg38 + ChromBPNet model + ANTHROPIC_API_KEY):
+#   from reglens.validation.null_control import (run_paired_control, render_paired,
+#                                                run_strong_positive_control, render_summary)
 #   neg, pos = run_paired_control("data/benchmarks/kircher_mpra_grch38.tsv",
 #                  MultiAgentInterpreter(), n_neg=8, n_pos=8, elements=HEMA,
-#                  genome_path=hg38, scorer=k562)
-#   print(render_paired(neg, pos))
+#                  genome_path=hg38, scorer=k562); print(render_paired(neg, pos))
+#   # arm 3 — force the engine to fire, then test assertion (closes the biconditional):
+#   strong = run_strong_positive_control("data/benchmarks/kircher_mpra_grch38.tsv",
+#                  MultiAgentInterpreter(), scorer=k562, genome_path=hg38,
+#                  n=8, pool=200, elements=HEMA); print(render_summary(strong, "strong+"))
 # build the benchmark (matched negatives):
 python -m reglens.validation.build_mpra_benchmark -o data/benchmarks/kircher_mpra_grch38.tsv
 # CADD baseline — annotate the cadd column from CADD's pre-scored whole-genome file:

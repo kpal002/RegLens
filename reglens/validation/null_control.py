@@ -255,7 +255,24 @@ def run_control(
         load_labeled_variants(benchmark) if isinstance(benchmark, str) else benchmark
     )
     selected = select_by_label(variants, n, label, seed=seed, elements=elements)
+    return _run_over(
+        selected, interpreter, label, genome_path=genome_path, scorer=scorer,
+        client=client, celltype=celltype, progress=progress,
+    )
 
+
+def _run_over(
+    selected: list[LabeledVariant],
+    interpreter: Any,
+    label: int,
+    *,
+    genome_path: str | None = None,
+    scorer: ChromBPNetScorer | None = None,
+    client: HttpClient | None = None,
+    celltype: str | None = None,
+    progress: bool = False,
+) -> list[NullControlOutcome]:
+    """Deliberate over an explicit, already-selected variant list (no re-selection)."""
     outcomes: list[NullControlOutcome] = []
     for i, lv in enumerate(selected, 1):
         bundle = analyze_variant(
@@ -289,6 +306,61 @@ def run_control(
     return outcomes
 
 
+def rank_positives_by_signal(
+    benchmark: str | list[LabeledVariant],
+    scorer: ChromBPNetScorer,
+    genome_path: str,
+    *,
+    n: int = 8,
+    pool: int = 200,
+    seed: int = 0,
+    elements: list[str] | None = None,
+    chunk_size: int = 2000,
+    progress: bool = False,
+) -> list[LabeledVariant]:
+    """Return the ``n`` positives with the largest ``|ChromBPNet Δ log-counts|``.
+
+    Scores a sampled ``pool`` of positives with the engine and keeps the strongest —
+    i.e. **forces the engine to fire**, so the positive control can test agent
+    *reasoning* (does it assert a coherent mechanism when signal is present?)
+    independently of the engine's *sensitivity* (which the random draw is limited by).
+
+    Args:
+        benchmark: Path to a labeled benchmark TSV, or a list of ``LabeledVariant``.
+        scorer: A configured ChromBPNet scorer.
+        genome_path: hg38 FASTA path.
+        n: Number of strong-signal positives to return.
+        pool: How many positives to score before ranking (larger → stronger top-``n``).
+        seed: Sampling seed for the pool.
+        elements: Optional element allow-list.
+        chunk_size: Batched-scoring chunk size.
+        progress: Print scoring progress + the selected ``|Δ|`` values.
+
+    Returns:
+        Up to ``n`` positive :class:`LabeledVariant` s, sorted by descending ``|Δ|``.
+    """
+    from reglens.validation.harness import evaluate_batched
+
+    variants = (
+        load_labeled_variants(benchmark) if isinstance(benchmark, str) else benchmark
+    )
+    candidates = select_positives(variants, pool, seed=seed, elements=elements)
+    report = evaluate_batched(
+        candidates, scorer, genome_path=genome_path, chunk_size=chunk_size,
+        progress=progress,
+    )
+    ranked = sorted(
+        (s for s in report.scored if s.delta_log_counts is not None),
+        key=lambda s: abs(s.delta_log_counts),
+        reverse=True,
+    )[:n]
+    if progress:
+        for s in ranked:
+            print(f"  strong+  {s.labeled.variant} ({s.labeled.source})  "
+                  f"|Δ|={abs(s.delta_log_counts):.3f}")
+    return [s.labeled for s in ranked]
+
+
 def run_null_control(
     benchmark: str | list[LabeledVariant], interpreter: Any, **kwargs: Any
 ) -> list[NullControlOutcome]:
@@ -301,6 +373,53 @@ def run_positive_control(
 ) -> list[NullControlOutcome]:
     """Run the positive control — the agent *should assert a mechanism*. See :func:`run_control`."""
     return run_control(benchmark, interpreter, 1, **kwargs)
+
+
+def run_strong_positive_control(
+    benchmark: str | list[LabeledVariant],
+    interpreter: Any,
+    scorer: ChromBPNetScorer,
+    genome_path: str,
+    *,
+    n: int = 8,
+    pool: int = 200,
+    seed: int = 0,
+    elements: list[str] | None = None,
+    client: HttpClient | None = None,
+    celltype: str | None = None,
+    progress: bool = False,
+) -> list[NullControlOutcome]:
+    """Positive control on **strong-signal** positives — closes the biconditional.
+
+    Ranks positives by ``|ChromBPNet Δ|`` (:func:`rank_positives_by_signal`) so the
+    engine *fires*, then runs the agent on those. Paired with the null control (engine
+    quiet → agent declines), a clean *recovered* result here proves the other
+    direction: engine fires → agent asserts. Together: **asserts iff the engine fires**.
+
+    Args:
+        benchmark: Path to a labeled benchmark TSV, or a list of ``LabeledVariant``.
+        interpreter: A multi-agent interpreter.
+        scorer: A configured ChromBPNet scorer (used both to rank and to score).
+        genome_path: hg38 FASTA path.
+        n: Number of strong-signal positives to test.
+        pool: Positives to score before ranking (larger → stronger top-``n``).
+        seed: Sampling seed for the pool.
+        elements: Optional element allow-list.
+        client: HTTP client for the annotation tools.
+        celltype: Cell-type context label.
+        progress: Print ranking + deliberation progress.
+
+    Returns:
+        One :class:`NullControlOutcome` per strong-signal positive.
+    """
+    strong = rank_positives_by_signal(
+        benchmark, scorer, genome_path, n=n, pool=pool, seed=seed,
+        elements=elements, progress=progress,
+    )
+    return _run_over(
+        strong, interpreter, 1, genome_path=genome_path, scorer=scorer,
+        client=client, celltype=celltype, progress=progress,
+    )
 
 
 def run_paired_control(

@@ -139,6 +139,17 @@ class _StubBundle:
         return {}
 
 
+class _Scored:
+    def __init__(self, labeled, delta):
+        self.labeled = labeled
+        self.delta_log_counts = delta
+
+
+class _Report:
+    def __init__(self, scored):
+        self.scored = scored
+
+
 class TestRunLoop:
     def test_run_and_summarize(self, monkeypatch):
         variants = [
@@ -206,3 +217,38 @@ class TestRunLoop:
         assert "declined on negatives : 3/3" in rendered
         assert "recovered on positives: 3/3" in rendered
         assert "cleanly" in rendered
+
+
+class TestStrongPositiveControl:
+    def test_rank_positives_by_signal(self, monkeypatch):
+        variants = [
+            LabeledVariant(variant=Variant(chrom="chr2", pos=1000 + k, ref="C", alt="T"),
+                           label=1, source="BCL11A")
+            for k in range(10)
+        ]
+
+        def fake_eval(cands, scorer, *, genome_path, chunk_size=2000, progress=False):
+            # |Δ| grows with pos, so higher pos == stronger engine signal.
+            return _Report([_Scored(lv, float(lv.variant.pos - 1000)) for lv in cands])
+
+        monkeypatch.setattr("reglens.validation.harness.evaluate_batched", fake_eval)
+        top = nc.rank_positives_by_signal(
+            variants, scorer=object(), genome_path="x", n=3, pool=10
+        )
+        assert [lv.variant.pos for lv in top] == [1009, 1008, 1007]   # top |Δ| first
+
+    def test_run_strong_positive_control(self, monkeypatch):
+        strong = [
+            LabeledVariant(variant=Variant(chrom="chr2", pos=1000, ref="C", alt="T"),
+                           label=1, source="BCL11A")
+        ]
+        monkeypatch.setattr(nc, "rank_positives_by_signal", lambda *a, **k: strong)
+        monkeypatch.setattr(nc, "analyze_variant", lambda *a, **k: _StubBundle())
+        interp = _interp("Alt disrupts a GATA1 motif, ablating the enhancer.", "high",
+                         tf="GATA1")
+        outcomes = nc.run_strong_positive_control(
+            [], _FakeInterpreter([interp]), scorer=object(), genome_path="x", n=1
+        )
+        assert len(outcomes) == 1
+        assert outcomes[0].label == 1
+        assert outcomes[0].verdict == "recovered"
