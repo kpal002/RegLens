@@ -153,13 +153,23 @@ the faithful test — where the negatives' near-zero ChromBPNet Δ and weak-but-
 motifs *are* in the bundle and the agent could over-read them — runs on Colab through the
 same harness (`run_null_control(..., genome_path=hg38, scorer=k562)`). Reported either way.
 
+**The full picture is the *paired* control** (`run_paired_control`): the same run also
+draws matched **positives** and checks the mirror question — does the agent *recover* a
+confident mechanism on genuinely functional variants? Declining on negatives **and**
+asserting on positives is the discrimination story. It needs the sequence signals present
+(on annotation-only bundles the positives merely *miss* for lack of data), so it runs on
+Colab; the verdict rubric scores each arm (negatives: declined/borderline/**confabulated**;
+positives: **recovered**/borderline/missed).
+
 ## Reproduce
 
 ```bash
-# agent null control (faithful run needs hg38 + the ChromBPNet model + ANTHROPIC_API_KEY):
-#   from reglens.validation.null_control import run_null_control, render_summary
-#   run_null_control("data/benchmarks/kircher_mpra_grch38.tsv", MultiAgentInterpreter(),
-#                    n=8, elements=HEMATOPOIETIC, genome_path=hg38, scorer=k562)
+# agent null / paired control (faithful run needs hg38 + ChromBPNet model + ANTHROPIC_API_KEY):
+#   from reglens.validation.null_control import run_paired_control, render_paired
+#   neg, pos = run_paired_control("data/benchmarks/kircher_mpra_grch38.tsv",
+#                  MultiAgentInterpreter(), n_neg=8, n_pos=8, elements=HEMA,
+#                  genome_path=hg38, scorer=k562)
+#   print(render_paired(neg, pos))
 # build the benchmark (matched negatives):
 python -m reglens.validation.build_mpra_benchmark -o data/benchmarks/kircher_mpra_grch38.tsv
 # CADD baseline — annotate the cadd column from CADD's pre-scored whole-genome file:

@@ -49,6 +49,30 @@ class TestRubric:
         assert nc.classify_decline(i) == "declined"
 
 
+class TestBehaviorAndVerdict:
+    def test_assertiveness_three_levels(self):
+        assert nc.assertiveness(_interp("No coherent mechanism.", "low")) == "declined"
+        assert nc.assertiveness(
+            _interp("Disrupts a GATA1 site (speculative).", "low", tf="GATA1")
+        ) == "hedged"
+        assert nc.assertiveness(
+            _interp("Disrupts a GATA1 site, killing the enhancer.", "high", tf="GATA1")
+        ) == "asserted"
+
+    def test_positive_verdicts(self):
+        recovered = _interp("Alt allele disrupts a GATA1 motif, ablating the enhancer.",
+                            "high", tf="GATA1")
+        missed = _interp("No coherent mechanism; signals do not converge.", "low")
+        hedged = _interp("May disrupt a GATA1 site (speculative).", "low", tf="GATA1")
+        # On a positive, asserting is correct (recovered); declining is a miss.
+        assert nc.verdict_for(recovered, 1) == "recovered"
+        assert nc.verdict_for(missed, 1) == "missed"
+        assert nc.verdict_for(hedged, 1) == "borderline"
+        # Same behaviors on a negative flip meaning.
+        assert nc.verdict_for(recovered, 0) == "confabulated"
+        assert nc.verdict_for(missed, 0) == "declined"
+
+
 class TestSelection:
     def _variants(self) -> list[LabeledVariant]:
         out = []
@@ -88,6 +112,11 @@ class TestSelection:
     def test_element_filter(self):
         picked = nc.select_negatives(self._variants(), n=5, seed=0, elements=["HBB"])
         assert all(v.source == "HBB" for v in picked)
+
+    def test_select_positives_only_label_1(self):
+        picked = nc.select_positives(self._variants(), n=5, seed=0)
+        assert len(picked) == 5
+        assert all(v.label == 1 for v in picked)
 
 
 class _FakeInterpreter:
@@ -147,3 +176,33 @@ class TestRunLoop:
             variants, _FakeInterpreter([_interp("No mechanism.", "low")]), n=1
         )
         assert nc.summarize(outcomes).sequence_signal is False
+
+    def test_paired_control_contrast(self, monkeypatch):
+        variants = [
+            LabeledVariant(variant=Variant(chrom="chr2", pos=p, ref="C", alt="T"),
+                           label=lbl, source="BCL11A")
+            for lbl in (0, 1) for p in range(1000 + lbl * 100, 1005 + lbl * 100)
+        ]
+        # Negatives run first (3 declines), then positives (3 confident assertions).
+        interps = [
+            _interp("No coherent mechanism.", "low"),
+            _interp("No coherent mechanism.", "low"),
+            _interp("No coherent mechanism.", "low"),
+            _interp("Alt disrupts a GATA1 motif, ablating the enhancer.", "high", tf="GATA1"),
+            _interp("Alt disrupts a GATA1 motif, ablating the enhancer.", "high", tf="GATA1"),
+            _interp("Alt disrupts a GATA1 motif, ablating the enhancer.", "high", tf="GATA1"),
+        ]
+        monkeypatch.setattr(nc, "analyze_variant", lambda *a, **k: _StubBundle())
+
+        negs, poss = nc.run_paired_control(
+            variants, _FakeInterpreter(interps), n_neg=3, n_pos=3, seed=1
+        )
+        assert [o.verdict for o in negs] == ["declined"] * 3
+        assert [o.verdict for o in poss] == ["recovered"] * 3
+        # Correct-behavior counts on both arms.
+        assert nc.summarize(negs).n_correct == 3
+        assert nc.summarize(poss).n_correct == 3
+        rendered = nc.render_paired(negs, poss)
+        assert "declined on negatives : 3/3" in rendered
+        assert "recovered on positives: 3/3" in rendered
+        assert "cleanly" in rendered
