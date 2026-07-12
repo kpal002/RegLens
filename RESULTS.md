@@ -214,9 +214,29 @@ recovers the literature TF/gene/trait but caps confidence because the *matched*
 deterministic evidence is absent — the honest form of "knows what it doesn't know."
 
 **Architecture ablation.** `run_ablation` runs **single-agent vs multi-agent−redteam vs
-full multi-agent** over the *same* evidence bundle, across strong/weak/null strata, and
-reports what changes — in particular, does the red-team correctly **lower confidence** on
-the weak/null cases? That is the direct evidence for the Claude-use claim. _(Pending.)_
+full multi-agent** over the *same* evidence bundle (4 strong known mechanisms + 4 null MPRA
+negatives). Result — **no configuration ever *raised* confidence; the architecture
+de-escalated exactly the over-read cases and preserved the one fully-concordant call:**
+
+| variant | stratum | single | noRT | full | net |
+|---|---|---|---|---|---|
+| rs2814778 | strong | high | high | **high** | preserved ✓ |
+| rs1427407 | strong | high | high | **medium** | red-team lowered |
+| rs12740374 | strong | high | medium | **medium** | multi-agent lowered |
+| HGB1 | null | medium | low | **low** | multi-agent lowered |
+| rs6983267, 3 nulls | — | low | low | low | (already at floor) |
+
+Net single→full: **strong 2↓, null 1↓, 0 raised.** Two layers, two distinct jobs: the
+**multi-agent structure** caught single-agent overconfidence — a *null* it over-read
+(HGB1 medium→low) and a strong-but-weak-signal case (rs12740374 high→medium); the
+**red-team's** distinctive contribution was tempering rs1427407 — a real BCL11A variant but
+with only a modest ChromBPNet Δ — from high→medium, i.e. the "is this a model artifact?"
+check firing on a case the priors would wave through. And it **kept rs2814778 high** (the
+fully-concordant Duffy variant) — so the architecture calibrates, it doesn't blanket-hedge.
+That is the Claude-use payoff, shown rather than asserted. _(Honest: n=8; the nulls mostly
+sat at the low floor — the single agent already got 3/4 right — so the red-team's
+null-lowering has little room to show here; the one overconfident null was caught at the
+multi-agent stage before the red-team.)_
 
 **Confidence calibration.** `calibration_table` tabulates confidence (high/med/low) across
 the three strata — strong known mechanism / weak effect / null control. If confidence

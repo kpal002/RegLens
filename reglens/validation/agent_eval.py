@@ -380,28 +380,44 @@ def run_ablation(
 _CONF_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
-def render_ablation(rows: list[AblationRow]) -> str:
-    """Render the ablation: per-variant confidences + whether the red-team lowered it.
-
-    The headline question — does the red-team correctly *lower* confidence on weak/null
-    cases? — is summarized per stratum as the count where full < no-redteam confidence.
-    """
-    lines = ["── Architecture ablation (confidence by config) " + "─" * 12,
-             f"  {'variant':22s} {'stratum':7s}  single  noRT   full   redteam-effect"]
+def _transition(rows: list[AblationRow], a: str, b: str) -> str:
+    """Per-stratum ``lowered/raised`` counts for a confidence transition ``a → b``."""
+    getter = {"single": lambda r: r.single, "noRT": lambda r: r.multi_no_redteam,
+              "full": lambda r: r.multi_full}
     lowered: Counter[str] = Counter()
-    n_by_stratum: Counter[str] = Counter()
+    raised: Counter[str] = Counter()
+    n: Counter[str] = Counter()
     for r in rows:
-        s, nrt, full = _conf(r.single), _conf(r.multi_no_redteam), _conf(r.multi_full)
-        delta = _CONF_RANK[full] - _CONF_RANK[nrt]
-        effect = "↓ lowered" if delta < 0 else ("↑ raised" if delta > 0 else "= same")
-        n_by_stratum[r.stratum] += 1
+        n[r.stratum] += 1
+        delta = _CONF_RANK[_conf(getter[b](r))] - _CONF_RANK[_conf(getter[a](r))]
         if delta < 0:
             lowered[r.stratum] += 1
-        lines.append(f"  {r.label:22s} {r.stratum:7s}  {s:6s} {nrt:6s} {full:6s}  {effect}")
-    lines.append("  ── red-team lowered confidence (full < no-redteam):")
-    for stratum in ("strong", "weak", "null"):
-        if n_by_stratum.get(stratum):
-            lines.append(f"     {stratum:7s}: {lowered.get(stratum, 0)}/{n_by_stratum[stratum]}")
+        elif delta > 0:
+            raised[r.stratum] += 1
+    parts = [f"{s} {lowered.get(s, 0)}↓/{raised.get(s, 0)}↑ of {n[s]}"
+             for s in (*STRATA, *[s for s in n if s not in STRATA]) if n.get(s)]
+    return "   ".join(parts)
+
+
+def render_ablation(rows: list[AblationRow]) -> str:
+    """Render the ablation: per-variant confidences + what each layer buys.
+
+    Reports three transitions so the multi-agent structure's effect isn't hidden behind
+    the red-team's marginal one: single→multi (specialists+adjudicator), multi→+red-team,
+    and the net single→full. De-escalation (↓) on weak/null and preservation on strong is
+    the calibration signal.
+    """
+    lines = ["── Architecture ablation (confidence by config) " + "─" * 12,
+             f"  {'variant':22s} {'stratum':7s}  single  noRT   full   net"]
+    for r in rows:
+        s, nrt, full = _conf(r.single), _conf(r.multi_no_redteam), _conf(r.multi_full)
+        delta = _CONF_RANK[full] - _CONF_RANK[s]
+        net = "↓ lowered" if delta < 0 else ("↑ raised" if delta > 0 else "= same")
+        lines.append(f"  {r.label:22s} {r.stratum:7s}  {s:6s} {nrt:6s} {full:6s}  {net}")
+    lines.append("  ── confidence change by stratum (lowered↓ / raised↑):")
+    lines.append(f"     multi-agent (single→noRT): {_transition(rows, 'single', 'noRT')}")
+    lines.append(f"     red-team    (noRT→full)  : {_transition(rows, 'noRT', 'full')}")
+    lines.append(f"     net         (single→full): {_transition(rows, 'single', 'full')}")
     return "\n".join(lines)
 
 

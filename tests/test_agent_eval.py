@@ -127,9 +127,10 @@ class TestAblation:
         )
         assert len(rows) == 2
         rendered = ae.render_ablation(rows)
-        # full(low) < noRT(medium) for both rows -> lowered on each stratum.
-        assert "null   : 1/1" in rendered
-        assert "strong : 1/1" in rendered
+        # noRT(medium)→full(low): the red-team lowers each stratum by one.
+        assert "red-team    (noRT→full)  : strong 1↓/0↑ of 1   null 1↓/0↑ of 1" in rendered
+        # single(medium)→noRT(medium): no change from the specialist structure here.
+        assert "multi-agent (single→noRT): strong 0↓/0↑ of 1   null 0↓/0↑ of 1" in rendered
 
 
 class TestCalibration:
