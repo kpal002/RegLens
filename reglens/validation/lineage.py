@@ -149,7 +149,10 @@ def bootstrap_crossover_ci(
             if test(e) and per_model[hema_model].get(e) is not None
             and per_model[hep_model].get(e) is not None
         ]
-        own, other = (hema_model, hep_model) if compartment == "hematopoietic" else (hep_model, hema_model)
+        own, other = (
+            (hema_model, hep_model) if compartment == "hematopoietic"
+            else (hep_model, hema_model)
+        )
         deltas_point = [per_model[own][e] - per_model[other][e] for e in elements]
         point = _mean(deltas_point) or 0.0
         rng = random.Random(f"{seed}:{compartment}")

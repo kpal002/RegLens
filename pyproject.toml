@@ -36,6 +36,12 @@ chrombpnet = [
 agents = [
     "anthropic>=0.40",
 ]
+# The MCP stdio server that exposes the deterministic tool layer to MCP hosts
+# (Claude Desktop, etc.). Optional so the core package and its tests don't require
+# the MCP SDK to be installed.
+mcp = [
+    "mcp>=1.0",
+]
 dev = [
     "pytest>=7.4",
     "ruff>=0.4",
@@ -43,6 +49,7 @@ dev = [
 
 [project.scripts]
 reglens = "reglens.cli:app"
+reglens-mcp = "reglens.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["reglens*"]
