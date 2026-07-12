@@ -321,3 +321,32 @@ class TestCaddGzip:
         with gzip.open(gz, "wt") as f:
             f.write(content)
         assert load_cadd_scores(gz) == {("2", "100", "C", "T"): 22.4}
+
+
+class TestCrossover:
+    def test_is_hepatic(self):
+        from reglens.validation.lineage import is_hematopoietic, is_hepatic
+        assert is_hepatic("LDLR") and is_hepatic("SORT1") and is_hepatic("F9")
+        assert not is_hepatic("BCL11A")
+        assert not is_hematopoietic("LDLR")  # compartments are disjoint
+
+    def test_crossover_summary_and_dissociation(self):
+        from reglens.validation.lineage import crossover_summary, is_double_dissociation
+        # Constructed double dissociation: K562 wins hema, HepG2 wins hepatic.
+        per = {
+            "K562":  {"BCL11A": 0.72, "HBB": 0.70, "LDLR": 0.55, "SORT1": 0.57},
+            "HepG2": {"BCL11A": 0.54, "HBB": 0.56, "LDLR": 0.74, "SORT1": 0.71},
+        }
+        s = crossover_summary(per)
+        assert s["hematopoietic"]["K562"] == pytest.approx(0.71)
+        assert s["hematopoietic"]["HepG2"] == pytest.approx(0.55)
+        assert s["hepatic"]["HepG2"] == pytest.approx(0.725)
+        assert is_double_dissociation(s, "K562", "HepG2") is True
+
+    def test_no_dissociation_when_one_model_wins_both(self):
+        from reglens.validation.lineage import crossover_summary, is_double_dissociation
+        per = {  # K562 wins everywhere → not a dissociation
+            "K562":  {"BCL11A": 0.72, "LDLR": 0.72},
+            "HepG2": {"BCL11A": 0.54, "LDLR": 0.55},
+        }
+        assert is_double_dissociation(crossover_summary(per), "K562", "HepG2") is False

@@ -36,6 +36,8 @@ ELEMENT_LINEAGE: dict[str, str] = {
 
 # Lineages that belong to the hematopoietic (K562) compartment.
 HEMATOPOIETIC = frozenset({"erythroid", "megakaryocyte"})
+# Lineages that belong to the hepatic (HepG2) compartment.
+HEPATIC = frozenset({"hepatic"})
 
 
 def lineage(element: str) -> str:
@@ -46,6 +48,59 @@ def lineage(element: str) -> str:
 def is_hematopoietic(element: str) -> bool:
     """Whether an element's lineage is hematopoietic (K562's compartment)."""
     return lineage(element) in HEMATOPOIETIC
+
+
+def is_hepatic(element: str) -> bool:
+    """Whether an element's lineage is hepatic (HepG2's compartment)."""
+    return lineage(element) in HEPATIC
+
+
+# The two compartments used for the K562-vs-HepG2 crossover.
+_LINEAGE_TESTS = {"hematopoietic": is_hematopoietic, "hepatic": is_hepatic}
+
+
+def crossover_summary(
+    per_model: dict[str, dict[str, float]],
+) -> dict[str, dict[str, float | None]]:
+    """Mean AUROC per (lineage compartment × model) for the crossover experiment.
+
+    Args:
+        per_model: ``{model_name: {element: auroc}}`` — e.g. ``{"K562": {...},
+            "HepG2": {...}}``.
+
+    Returns:
+        ``{compartment: {model: mean_auroc}}`` for ``hematopoietic`` and ``hepatic``.
+    """
+    out: dict[str, dict[str, float | None]] = {}
+    for compartment, test in _LINEAGE_TESTS.items():
+        out[compartment] = {}
+        for model, aurocs in per_model.items():
+            vals = [a for e, a in aurocs.items() if test(e) and a is not None]
+            out[compartment][model] = sum(vals) / len(vals) if vals else None
+    return out
+
+
+def is_double_dissociation(
+    summary: dict[str, dict[str, float | None]], hema_model: str, hep_model: str
+) -> bool:
+    """Whether a crossover shows a double dissociation.
+
+    True iff the hematopoietic model wins on hematopoietic elements **and** the hepatic
+    model wins on hepatic elements — the intervention that proves the signal is
+    cell-type-driven, not a model artifact.
+
+    Args:
+        summary: Output of :func:`crossover_summary`.
+        hema_model: Name of the hematopoietic (K562) model in ``summary``.
+        hep_model: Name of the hepatic (HepG2) model in ``summary``.
+
+    Returns:
+        Whether the double dissociation holds.
+    """
+    h, p = summary["hematopoietic"], summary["hepatic"]
+    if None in (h.get(hema_model), h.get(hep_model), p.get(hema_model), p.get(hep_model)):
+        return False
+    return h[hema_model] > h[hep_model] and p[hep_model] > p[hema_model]
 
 
 def _mean(values: list[float]) -> float | None:
