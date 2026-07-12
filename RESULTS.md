@@ -17,34 +17,37 @@ Negatives are **matched by design**, not random genomic controls — the honest 
 - Model: **ENCODE K562 ATAC ChromBPNet** (ENCFF984RAF), 5-fold + reverse-complement
   averaged. Scored in ~26 min (batched); 0 scoring errors.
 
-## Headline
+## Headline — the model beats CADD, most on its own cell type
 
-| | AUROC |
-|---|---|
-| **Overall (matched, within-element)** | **0.622** |
-| Baseline (CADD) | *pending annotation* |
+| | Model (`\|Δ log-counts\|`) | CADD (baseline) | Δ |
+|---|---|---|---|
+| **Overall (matched, within-element)** | **0.622** | 0.556 | **+0.066** |
+| **Hematopoietic elements** | **0.716** | 0.587 | **+0.129** |
+| Other elements | 0.601 | 0.586 | +0.015 |
 
-0.622 on a within-element matched comparison is a modest-but-real, above-chance
-signal — exactly the range expected on this hard task. Not inflated.
+CADD PHRED v1.7 baseline, computed on the **same** 33,359 variants (pulled from CADD's
+pre-scored whole-genome file). The model **beats CADD overall (+0.066)** and wins in
+**18 / 29 elements** — but the story is in *where* it wins.
 
 ## Cell-type specificity (the real story)
 
-The K562 model is **erythroid/hematopoietic**, and per-element AUROC shows it:
+The K562 model is **erythroid/hematopoietic**, and both the absolute AUROC *and* the
+margin over CADD track that:
 
-| Group | Mean AUROC | n |
-|---|---|---|
-| **Hematopoietic elements** (BCL11A, HBB, HBG1, PKLR-24h/48h, GP1BA) | **0.716** | 6 |
-| Other elements | 0.601 | 23 |
-| — of which tissue-specific developmental (FOXE1, RET, IRF6, IRF4, TCF7L2, ZRS×2, MYC) | **0.514** (≈ chance) | 8 |
+- **On hematopoietic elements** (BCL11A, HBB, HBG1, PKLR-24h/48h, GP1BA): model **0.716**
+  vs CADD **0.587** — a **+0.13** margin. The cell-type-appropriate deep model adds large
+  signal beyond generic conservation.
+- **On non-hematopoietic elements**: model 0.601 vs CADD 0.586 — **≈ tied** (+0.015). With
+  the wrong cell type, the model has no edge over CADD.
 
-**The erythroid model discriminates blood-regulatory variants (~0.72) but is at chance
-on thyroid/gut/limb enhancers (~0.51).** That is RegLens's cell-type-specificity thesis,
-measured — the right cell-type model matters.
+**A cell-type-matched chromatin model beats a cell-type-agnostic conservation score — but
+only in the matching cell type.** That is RegLens's whole thesis, measured. The biggest
+per-element wins are all hematopoietic (PKLR-48h +0.175, PKLR-24h +0.200, GP1BA +0.178);
+CADD wins on non-erythroid elements (LDLR −0.10 hepatic, IRF4/IRF6 −0.12, ZFAND3 −0.12).
 
-**Honest caveats:** it's a tendency, not a clean dichotomy. A few broadly-active elements
-(TERT ~0.67, LDLR ~0.69, UC88 0.71) also score moderately in K562. The best element is
-PKLR (0.79–0.81, red-cell pyruvate kinase — a lovely result); the worst is FOXE1 (0.43,
-thyroid). All numbers are on the matched benchmark; none are cherry-picked negatives.
+**Honest caveats:** overall +0.066 is a modest margin; the strength is the *stratified*
+result. It's a tendency, not perfect (a few broad elements like TERT are close; CADD wins
+11/29). All numbers are on the matched benchmark; none are cherry-picked negatives.
 
 ## Full per-element AUROC
 

@@ -138,6 +138,58 @@ def export_vcf(benchmark_tsv: str | os.PathLike[str], out_vcf: str | os.PathLike
     return len(seen)
 
 
+CADD_SNV_URL = "https://kircherlab.bihealth.org/download/CADD/v1.7/GRCh38/whole_genome_SNVs.tsv.gz"
+
+
+def annotate_from_remote_cadd(
+    benchmark_tsv: str | os.PathLike[str],
+    out_tsv: str | os.PathLike[str],
+    url: str = CADD_SNV_URL,
+) -> tuple[int, int]:  # pragma: no cover - network + pysam
+    """Annotate the benchmark's ``cadd`` column directly from CADD's pre-scored file.
+
+    Bypasses the CADD web form: reads the remote tabix-indexed whole-genome SNV file
+    over HTTP range requests, fetching one region per element (fast), and fills the
+    ``cadd`` (PHRED) column. Requires ``pysam`` and network access.
+
+    Args:
+        benchmark_tsv: The harness benchmark TSV.
+        out_tsv: Output path for the CADD-annotated benchmark.
+        url: The remote CADD whole-genome SNV file (GRCh38, tabix-indexed).
+
+    Returns:
+        ``(n_annotated, n_total)``.
+    """
+    import collections
+
+    import pysam
+
+    with open(benchmark_tsv, newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    groups: dict[tuple[str, str], list[int]] = collections.defaultdict(list)
+    for r in rows:
+        groups[(_norm_chrom(r["chrom"]), r["source"])].append(int(r["pos"]))
+
+    tb = pysam.TabixFile(url)
+    lookup: dict[tuple[str, str, str, str], str] = {}
+    for (chrom, _elem), positions in groups.items():
+        for line in tb.fetch(chrom, min(positions) - 1, max(positions)):
+            c, pos, ref, alt, _raw, phred = line.split("\t")
+            lookup[(c, pos, ref, alt)] = phred
+
+    fields = list(rows[0]) + (["cadd"] if "cadd" not in rows[0] else [])
+    annotated = 0
+    for r in rows:
+        r["cadd"] = lookup.get((_norm_chrom(r["chrom"]), r["pos"], r["ref"].upper(),
+                                r["alt"].upper()), "")
+        annotated += bool(r["cadd"])
+    with open(out_tsv, "w", newline="") as handle:
+        w = csv.DictWriter(handle, fieldnames=fields, delimiter="\t")
+        w.writeheader()
+        w.writerows(rows)
+    return annotated, len(rows)
+
+
 def main() -> None:  # pragma: no cover - CLI entry point
     """CLI: export benchmark → VCF, or merge CADD scores → annotated benchmark."""
     ap = argparse.ArgumentParser(description=__doc__)
@@ -149,10 +201,16 @@ def main() -> None:  # pragma: no cover - CLI entry point
     m.add_argument("-b", "--benchmark", required=True)
     m.add_argument("-c", "--cadd", required=True)
     m.add_argument("-o", "--out", required=True)
+    rp = sub.add_parser("remote", help="annotate cadd directly from CADD's remote file (pysam)")
+    rp.add_argument("-b", "--benchmark", required=True)
+    rp.add_argument("-o", "--out", required=True)
     args = ap.parse_args()
     if args.cmd == "export":
         n = export_vcf(args.benchmark, args.out)
         print(f"wrote {n} unique variants to {args.out} — upload to cadd.gs.washington.edu")
+    elif args.cmd == "remote":
+        annotated, total = annotate_from_remote_cadd(args.benchmark, args.out)
+        print(f"annotated {annotated}/{total} rows from remote CADD → {args.out}")
     else:
         annotated, total = annotate_benchmark(args.benchmark, args.cadd, args.out)
         print(f"annotated {annotated}/{total} rows with CADD → {args.out}")
