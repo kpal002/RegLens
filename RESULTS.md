@@ -120,12 +120,12 @@ only — per-variant sampling noise would need the raw scores. Reproduce:
 > gate).** Re-validated on the new library: **recovery** (numbers held *exactly* — the
 > finding is that TF recovery was never library-bottlenecked), **ablation** (direction holds
 > across both runs — layers only de-escalate, never raise), **calibration** (`medium+` now
-> 4/11 in strong, still 0% in weak/null), and the **null-control paired arms** (negatives
-> 7/8 declined / 0 confabulated, random positives 0/8 recovered — held, and the bigger
-> library surfaced more motifs to confabulate from, yet confabulations stayed at 0). **Still
-> pending their re-runs:** the strong-signal positive control (Arm 3) and the rs342293
-> discovery worked example (`notebooks/05` — its characterized factor **MECOM** is now in the
-> library, so the motif call must be re-checked). *Engine* results (AUROC, crossover) are unaffected.
+> 4/11 in strong, still 0% in weak/null), and the **full null-control biconditional** (all
+> three arms: 24 deliberations, **0 confabulations** — the bigger library surfaces *more*
+> motifs to be tempted by, and the significance-gate `p_value` now visibly steers the
+> confidence of every call). **Still pending:** only the rs342293 discovery worked example
+> (`notebooks/05` — its characterized factor **MECOM** is now in the library, so the motif
+> call must be re-checked). *Engine* results (AUROC, crossover) are unaffected.
 
 The question almost nobody tests: handed an MPRA **negative** (non-functional, yet sitting
 in or beside an *active* regulatory element of a famous gene, in the matching cell type),
@@ -162,36 +162,40 @@ be tempted by, left that at zero).
 
 **Arm 3 — strong-signal positives (should assert): the other direction.** _(Numbers below
 are from the 3-motif run — this arm is a separate `run_strong_positive_control` cell,
-pending its full-library re-run.)_ Two hand-picked demos are anecdote, not control — a
-skeptic can say "maybe it just stays silent on everything." So `run_strong_positive_control`
-selects positives by **top `|ChromBPNet Δ|`**
-(`rank_positives_by_signal`) — *forcing the engine to fire* — then asks whether the agent
-asserts. Strict verdict on 8 (|Δ| 0.37–1.08): **1 recovered, 4 borderline, 3 missed** — but
-that tally hides the actual result, so split by *what the engine handed the agent*:
+Two hand-picked demos are anecdote, not control — a skeptic can say "maybe it just stays
+silent on everything." So `run_strong_positive_control` selects positives by **top
+`|ChromBPNet Δ|`** (`rank_positives_by_signal`) — *forcing the engine to fire* — then asks
+whether the agent asserts. Full-library run, strict verdict on 8 (|Δ| 0.37–1.08): **1
+recovered, 4 borderline, 3 missed** — the same tally as the 3-motif run, but the *character*
+is sharper because the significance gate's `p_value` now steers every call:
 
-- **Motif + Δ both fired (5/8): the agent named a concordant TF mechanism every time, 0
-  confabulations.** The strongest, cleanest case (`chr1:155301467`: GATA1::TAL1 abolished
-  Δ−14.6, ChromBPNet −1.08) earned the only *medium* → **recovered**. The other four named
-  the motif and matched its direction but stayed *low* (borderline). One
-  (`chr22:19723407`) is the tell: a CTCF site *strengthened* while ChromBPNet *decreased* —
-  the agent **caught the discordance** ("CTCF gain usually maintains accessibility …
-  internally tense … a weak hypothesis"), which is reasoning, not a miss.
-- **Only ChromBPNet fired, no motif (3/8):** strong Δ (+0.82, +0.82, −0.43) but the agent
-  refused to name a TF — *"the specific TF cannot be named."* That is a **motif-library
-  gap** (the bundled JASPAR subset), not an agent failure — the honest behavior.
+- **Motif + Δ both fired (5/8): the agent named a concordant TF every time, 0 confabulations
+  — and now weights each by its empirical `p_value` and TF-family biology.** The recovered
+  case is `chr11:5227107` (HBB): the C allele **creates a KLF/CACCC-box** (p=0.004,
+  concordant with Δ+0.82) → *medium*, and the agent even refines it — *"attributed to KLF5
+  but likely the erythroid factor KLF1/EKLF given the locus,"* which is the real β-globin
+  CACCC biology. The four borderlines are the tell: on the top-|Δ| variant (`chr1:155301467`,
+  |Δ|=1.08) the gated motif is a **marginal** ZNF677 (p=0.048), and the agent flags both the
+  weak p and a *direction* conflict — *"ZNF677 is a KRAB zinc-finger typically a repressor,
+  whose loss would raise—not lower—accessibility"* — so it stays *low*, not asserted (a
+  demotion from the 3-motif run, where this variant's GATA site scored it *recovered*).
+  Likewise SP4 (p=0.044) and FERD3L (p=0.02, "repressor-like") are named but held low.
+- **Only ChromBPNet fired, no motif cleared the gate (3/8):** strong Δ (+0.39, −0.43, +0.37)
+  but no significant site, so the agent refused to name a TF. With the full library this is
+  now the **significance gate**, not a coverage gap — the honest behavior either way.
 
-So the biconditional holds where it counts: **the agent names a mechanism iff the motif
-channel fires with a concordant Δ, and confabulates never** — in three arms and 24
-deliberations. With 0 events in 24 trials, the *rule of three* puts a **95% upper bound on
-the true confabulation rate of 3/24 ≈ 12%** — small-n, stated honestly, not hidden. Two
-further honest points fall out: (1) **confidence is corroboration-gated
-and *capped* for this benchmark** — MPRA saturation-mutagenesis variants have no rsid /
-eQTL / GWAS / literature by construction, so the agent structurally cannot reach *high*
-confidence on them; only the single strongest fully-concordant case reached *medium*
-(precisely why the curated rs1427407 / rs2814778 demos, which have those corroborating
-limbs, score higher). (2) The motif library, not the reasoning layer, is the binding
-constraint on how often a mechanism can be named. The agent tracks the evidence in **both**
-directions — it is not merely conservative.
+So the biconditional holds where it counts: **the agent names a mechanism iff a significant
+motif fires with a concordant Δ, weights it by the empirical `p_value`, and confabulates
+never** — across three arms and **24 deliberations, 0 confabulations** (re-validated on the
+full 879-motif library, which surfaces *more* motifs to be tempted by). Rule of three: a
+**95% upper bound on the confabulation rate of 3/24 ≈ 12%**, stated honestly. Two further
+points: (1) confidence is corroboration-gated and *capped* for this benchmark — MPRA
+saturation-mutagenesis variants carry no rsID / eQTL / GWAS / literature, so only a
+fully-concordant case reaches *medium* (the curated rs1427407 / rs2814778 demos, which
+*have* those limbs, reach higher). (2) The binding constraint on naming the *causal* TF is
+that the tool's strongest-binding gated site isn't always the functional one — the agent
+mitigates this by weighting the `p_value` and flagging direction conflicts, and tracks the
+evidence in **both** directions, not merely conservatively.
 
 ## Agent reasoning — recovery, ablation, calibration
 
