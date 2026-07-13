@@ -116,15 +116,14 @@ only — per-variant sampling noise would need the raw scores. Reproduce:
 
 ## Agent null control — does it confabulate, and does it track the evidence?
 
-> ⚠️ **Re-validation in progress.** Every agent-layer result in the sections below
-> (null control, recovery, ablation, calibration, and the discovery worked example) was
-> generated with the **prior 3-motif** library. The motif library has since been expanded
-> to the **full JASPAR CORE (879 matrices) with an empirical significance gate**, which
-> can change any finding that hinges on whether the motif tool surfaced a TF — the TF
-> non-hits in recovery (e.g. Oct-1/LEF1/GATA3, all now in the library), the null-control
-> "missed" cases, and the rs342293 worked example (whose characterized factor **MECOM** is
-> now present). These numbers are being re-run on the expanded library; treat the *engine*
-> results (AUROC, crossover) as current and the agent numbers below as pending re-validation.
+> ⚠️ **Re-validation status (motif library expanded 3 → 879 JASPAR CORE + significance
+> gate).** **Recovery is re-validated** on the new library — the numbers held *exactly*
+> (trait 11/11, gene 10/11, TF 8/11), which is itself the finding: TF recovery was never
+> library-bottlenecked (see below for the reframed cause). **Still pending their re-runs:**
+> the null-control arms and the confidence-calibration table (one strong-stratum call,
+> rs1421085, shifted medium→low, so `medium+` is now 4/11 not 5/11), and the rs342293
+> discovery worked example (whose characterized factor **MECOM** is now in the library —
+> its motif call must be re-checked). *Engine* results (AUROC, crossover) are unaffected.
 
 The question almost nobody tests: handed an MPRA **negative** (non-functional, yet sitting
 in or beside an *active* regulatory element of a famous gene, in the matching cell type),
@@ -206,16 +205,25 @@ established **TF / gene / trait** and a primary PMID. Coordinates are resolved f
 via Ensembl (`resolve_variant`, all 11 validated live), so the set carries no hand-typed
 positions. `run_recovery` scores whether the agent names the right TF/gene/trait.
 
-**Result: trait 11/11, gene 10/11, TF 8/11** (faithful K562 run). The gene miss is KITLG
-(a distal target the nearest-gene tool didn't surface). The three TF non-hits are the
-**anti-confabulation property under maximum temptation**, not failures: on rs4988235 the
-agent plainly *knew* the textbook answer — it named the MCM6 lactase-persistence enhancer —
-yet **refused to assert Oct-1/POU2F1** because its motif tool surfaced nothing; likewise
-KITLG/LEF1; and on rs2168101 it found a GATA-family composite (GATA1::TAL1) but not the
-specific *GATA3*. In no case did it invent a TF from memory. On rs6983267 it went further —
-recovered TCF7L2 from the literature, then flagged that its *own* tool disagreed ("the
-canonical mechanism is TCF7L2/TCF4 … not captured by the CTCF-only motif call") and dropped
-to low confidence.
+**Result: trait 11/11, gene 10/11, TF 8/11** — and, tellingly, **identical after expanding
+the motif library 293× (3 → 879 JASPAR CORE + a significance gate).** TF recovery is *not*
+library-bottlenecked. The gene miss is KITLG (a distal target the nearest-gene tool didn't
+surface). The three TF non-hits are the **anti-confabulation property under maximum
+temptation**, not failures, and with the full library their causes are now sharper: on
+rs4988235 the agent plainly *knew* the textbook answer — it named the MCM6 lactase-persistence
+enhancer — yet **refused to assert Oct-1/POU2F1** because no site cleared the significance
+gate (POU2F1 *is* in the library now; the K562 signal simply isn't there); likewise KITLG/LEF1
+(null in the wrong cell type); and on rs2168101 the top gated pick is a GATA-family composite
+(GATA1::TAL1), not the specific *GATA3*. In no case did it invent a TF from memory.
+
+**The deeper point the expanded library exposes:** the motif tool's top-|Δ| gated pick is the
+*strongest-binding* site, which is often **not the characterized functional TF** — and the
+agent handles that exactly right. It now surfaces CTCF at rs6983267 (real: TCF7L2), CTCF at
+rs6801957 (real: TBX5), and a GATA1 site at rs4784227 (real: FOXA1) — and in each case it
+**names the tool's motif, flags the discordance, and drops to `low` confidence, recovering
+the true TF from the literature** ("the canonical mechanism is TCF7L2/TCF4 … not captured by
+the CTCF-only motif call"). So the ceiling on naming the *causal* TF was never library size;
+it is that the strongest-binding motif ≠ the functional one, plus the gate and cell-type.
 
 **Confidence is cell-type-aware — measured calibration.** The single *high* went to
 rs2814778 (Duffy) — the one variant whose lineage matches the K562 model, where motif loss
@@ -353,10 +361,14 @@ Stated plainly, because the honesty *is* the contribution:
   A variant outside that lineage gets no matched sequence signal — the source of the
   calibration `low`s on the liver/breast/cardiac known mechanisms. Coverage scales only by
   adding models.
-- **Motif-library ceiling.** The bundled JASPAR subset caps how often a mechanism can be
-  *named*: variants with a strong accessibility Δ but no motif above threshold yield "no TF
-  named" (the null-control "missed" positives; 2 of the 3 recovery TF non-hits). This is a
-  library gap, not a reasoning gap — but it bounds the mechanism-recovery rate.
+- **Motif tool names the strongest binder, not always the causal TF.** The library is now
+  the full JASPAR CORE (879 matrices) with an empirical significance gate — expanding it did
+  *not* change TF recovery (still 8/11), so coverage was never the ceiling. The residual
+  limit is subtler: the tool reports the top-|Δ| *gated* site, which is the strongest binder
+  and often not the characterized functional TF (CTCF where TCF7L2 is causal, GATA1 where
+  FOXA1 is). The reasoning layer mitigates this well — it flags the discordance and defers to
+  the literature at low confidence — but a variant whose site fails the gate (small/absent
+  signal, wrong cell type) still yields "no TF named," which bounds the recovery rate.
 - **LD and causality unresolved.** The agent flags LD confounding but cannot resolve which
   variant in a haplotype block is causal; every interpretation is an association-grounded
   *hypothesis*, not proof of causation.

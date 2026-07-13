@@ -146,9 +146,10 @@ claim it. The guardrail working is the result; see
 ## Limitations
 
 Called out where they apply, and collected in [`RESULTS.md`](RESULTS.md#limitations): one
-cell type per model; a motif-library ceiling (some real effects have no nameable JASPAR
-motif); LD/causality unresolved (hypotheses, not proof); an MPRA-vs-endogenous modality gap;
-the hepatic crossover arm underpowered; and small n's throughout (bounds reported, e.g. the
+cell type per model; the motif tool names the *strongest binder*, which isn't always the
+causal TF (the full JASPAR CORE + significance gate didn't change TF recovery — coverage was
+never the ceiling); LD/causality unresolved (hypotheses, not proof); an MPRA-vs-endogenous
+modality gap; the hepatic crossover arm underpowered; and small n's throughout (bounds reported, e.g. the
 rule-of-three above).
 
 ## Install
