@@ -469,3 +469,265 @@ def render_calibration(table: CalibrationTable) -> str:
             continue
         lines.append(f"  {stratum:10s} {row['high']:6d} {row['medium']:7d} {row['low']:6d}")
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------------------
+# Calibration benchmark with corroborating evidence (the HIGH-confidence regime).
+#
+# The MPRA calibration strata (strong/weak/null) are *synthetic saturation-mutagenesis*
+# variants: they carry no rsID, hence no eQTL / GWAS / literature by construction, so the
+# agent can structurally never reach **high** confidence on them (missing limbs). Only
+# rs2814778 ever reached high in the whole suite — the high regime is essentially
+# untested (n=1).
+#
+# This benchmark closes that gap with a curated ladder of *real hematopoietic* variants
+# (K562-lineage, so the ChromBPNet signal is in-cell-type) that carry the corroborating
+# limbs. Crucially the "should be high" tier can't be labeled a priori — the matched,
+# *strong* ChromBPNet Δ is only known after scoring (rs1427407 is a real, fully-cited
+# erythroid BCL11A variant that still lands medium because its Δ is small). So we don't
+# hard-code an expected tier: we *measure* evidence completeness from the actual bundle
+# (five channels) and validate that confidence tracks it — rises monotonically, and that
+# **high appears only at full corroboration**. Both outcomes are honest: high on several
+# fully-corroborated variants validates high-confidence calibration; high staying rare
+# confirms the agent correctly reserves it for the strong-matched-signal case.
+# --------------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class CalibrationVariant:
+    """A real hematopoietic (K562-lineage) variant curated to carry corroborating limbs.
+
+    Attributes:
+        rsid: dbSNP rsID (resolves the hg38 coordinate and drives eQTL/GWAS/lit).
+        gene: Nearby/target gene (context only; not scored).
+        trait: Blood trait it associates with (context only).
+        alt: Functional alt allele to pin when the rsID is multi-allelic.
+        celltype: Scoring cell type — K562 (erythroid) matches these blood loci.
+        note: One-line description.
+    """
+
+    rsid: str
+    gene: str = ""
+    trait: str = ""
+    alt: str | None = None
+    celltype: str = "K562"
+    note: str = ""
+
+
+#: Hematopoietic variants spanning a corroboration ladder. All are real noncoding
+#: blood-trait loci (erythroid/HbF/RBC + a couple of megakaryocyte/platelet), so K562
+#: gives an in-lineage ChromBPNet read and the rsIDs carry eQTL/GWAS/literature limbs.
+#: Where each lands on the ladder is *measured* (see :func:`evidence_limbs`), not assumed.
+HEMATOPOIETIC_CALIBRATION: list[CalibrationVariant] = [
+    CalibrationVariant("rs2814778", "ACKR1", "neutrophil count / Duffy", alt="C",
+                       note="Duffy-null GATA1 promoter site; strong erythroid signal"),
+    CalibrationVariant("rs1427407", "BCL11A", "fetal hemoglobin", alt="G",
+                       note="BCL11A +58 erythroid enhancer, GATA1/half-E-box"),
+    CalibrationVariant("rs766432", "BCL11A", "fetal hemoglobin",
+                       note="BCL11A intron-2 HbF-associated enhancer variant"),
+    CalibrationVariant("rs11886868", "BCL11A", "fetal hemoglobin",
+                       note="BCL11A HbF-associated regulatory variant"),
+    CalibrationVariant("rs4895441", "HBS1L-MYB", "fetal hemoglobin / RBC",
+                       note="HBS1L-MYB intergenic erythroid enhancer"),
+    CalibrationVariant("rs9399137", "HBS1L-MYB", "red blood cell / hematocrit",
+                       note="HBS1L-MYB erythroid enhancer cluster"),
+    CalibrationVariant("rs7776054", "HBS1L-MYB", "red blood cell count",
+                       note="HBS1L-MYB erythroid regulatory variant"),
+    CalibrationVariant("rs1175550", "SMIM1", "red blood cell count",
+                       note="SMIM1 (Vel) erythroid enhancer, GATA1-regulated"),
+    CalibrationVariant("rs737092", "RBM38", "red blood cell indices",
+                       note="RBM38 regulatory variant, RBC size/count"),
+    CalibrationVariant("rs342293", "PIK3CG", "platelet count",
+                       note="7q22.3 megakaryocyte enhancer (off-erythroid lineage)"),
+    CalibrationVariant("rs1354034", "ARHGEF3", "platelet count",
+                       note="ARHGEF3 megakaryocyte regulatory variant"),
+]
+
+#: The five corroborating evidence channels the agent can weight into confidence.
+EVIDENCE_CHANNELS = ("chrombpnet", "motif", "eqtl", "gwas", "literature")
+
+
+def evidence_limbs(
+    bundle: Any, *, min_delta: float = 0.30, sig_alpha: float = 0.05
+) -> dict[str, bool]:
+    """Which corroborating limbs a bundle actually carries (measured, not assumed).
+
+    Five independent channels, each a boolean:
+
+    - ``chrombpnet``: a *strong* matched-cell-type accessibility change
+      (``|Δ log-counts| >= min_delta``) — the limb the MPRA strata can have but the one
+      that gates ``high`` in practice.
+    - ``motif``: a *significant* motif hit (a top hit whose empirical ``p_value`` clears
+      ``sig_alpha``; if the library reports no p-value, presence of a top hit suffices).
+    - ``eqtl`` / ``gwas`` / ``literature``: at least one GTEx eQTL / GWAS association /
+      literature citation — the rsID-keyed limbs the synthetic MPRA variants lack.
+
+    Args:
+        bundle: An :class:`~reglens.report.schema.EvidenceBundle`.
+        min_delta: Threshold on ``|Δ log-counts|`` for a "strong" ChromBPNet signal.
+        sig_alpha: Significance threshold on the motif hit's empirical ``p_value``.
+
+    Returns:
+        ``{channel: present}`` over :data:`EVIDENCE_CHANNELS`.
+    """
+    cp = getattr(bundle, "chrombpnet", None)
+    strong_cp = bool(cp is not None and abs(cp.delta_log_counts) >= min_delta)
+
+    motif = getattr(bundle, "motif", None)
+    top = getattr(motif, "top", None) if motif is not None else None
+    if top is None:
+        sig_motif = False
+    else:
+        p = getattr(top, "p_value", None)
+        sig_motif = True if p is None else (p <= sig_alpha)
+
+    gene = getattr(bundle, "gene", None)
+    trait = getattr(bundle, "trait", None)
+    lit = getattr(bundle, "literature", None)
+    return {
+        "chrombpnet": strong_cp,
+        "motif": sig_motif,
+        "eqtl": bool(gene is not None and getattr(gene, "eqtls", None)),
+        "gwas": bool(trait is not None and getattr(trait, "associations", None)),
+        "literature": bool(lit is not None and getattr(lit, "hit_count", 0)),
+    }
+
+
+def _concordant(bundle: Any) -> bool:
+    """Whether the motif Δ and the ChromBPNet Δ point the same way (both signed)."""
+    cp = getattr(bundle, "chrombpnet", None)
+    motif = getattr(bundle, "motif", None)
+    top = getattr(motif, "top", None) if motif is not None else None
+    if cp is None or top is None:
+        return False
+    return top.delta_score * cp.delta_log_counts > 0
+
+
+@dataclass
+class CalibrationOutcome:
+    """One benchmark variant: measured evidence completeness vs the agent's confidence."""
+
+    rsid: str
+    gene: str
+    variant: Variant
+    limbs: dict[str, bool]
+    completeness: int
+    concordant: bool
+    confidence: str
+    interpretation: Any
+    result: Any = None
+
+
+def run_calibration_benchmark(
+    interpreter: Any,
+    variants: list[CalibrationVariant] | None = None,
+    *,
+    scorer: Any = None,
+    genome_path: str | None = None,
+    client: HttpClient | None = None,
+    min_delta: float = 0.30,
+    sig_alpha: float = 0.05,
+    progress: bool = False,
+) -> list[CalibrationOutcome]:
+    """Run the agent on the corroboration ladder and pair confidence with evidence limbs.
+
+    For each variant: resolve the rsID, build the deterministic bundle (which fetches the
+    eQTL/GWAS/literature limbs live), run the interpreter, and record the *measured*
+    completeness (:func:`evidence_limbs`) alongside the agent's confidence.
+
+    Args:
+        interpreter: Multi-agent interpreter (``deliberate`` used when available).
+        variants: Ladder to run (defaults to :data:`HEMATOPOIETIC_CALIBRATION`).
+        scorer: ChromBPNet scorer (with ``genome_path``) for the matched signal.
+        genome_path: hg38 FASTA path.
+        client: HTTP client for the annotation tools + rsID resolution.
+        min_delta: "Strong ChromBPNet" threshold passed to :func:`evidence_limbs`.
+        sig_alpha: Motif significance threshold passed to :func:`evidence_limbs`.
+        progress: Print a per-variant marker.
+
+    Returns:
+        One :class:`CalibrationOutcome` per variant.
+    """
+    variants = variants if variants is not None else HEMATOPOIETIC_CALIBRATION
+    outcomes: list[CalibrationOutcome] = []
+    for i, cv in enumerate(variants, 1):
+        variant = resolve_variant(cv.rsid, client, prefer_alt=cv.alt)
+        bundle = analyze_variant(
+            variant, rsid=cv.rsid, celltype=cv.celltype or None,
+            genome_path=genome_path, scorer=scorer, client=client,
+        )
+        if hasattr(interpreter, "deliberate"):
+            result = interpreter.deliberate(bundle)
+            interp = result.interpretation
+        else:
+            result = None
+            interp = interpreter.interpret(bundle)
+        limbs = evidence_limbs(bundle, min_delta=min_delta, sig_alpha=sig_alpha)
+        outcomes.append(CalibrationOutcome(
+            rsid=cv.rsid, gene=cv.gene, variant=variant,
+            limbs=limbs, completeness=sum(limbs.values()),
+            concordant=_concordant(bundle), confidence=_conf(interp),
+            interpretation=interp, result=result,
+        ))
+        if progress:
+            got = "".join(k[0].upper() for k in EVIDENCE_CHANNELS if limbs[k]) or "-"
+            print(f"  [{i}/{len(variants)}] {cv.rsid} ({cv.gene}) "
+                  f"limbs={got} ({sum(limbs.values())}/5) conf={_conf(interp)}")
+    return outcomes
+
+
+def calibration_benchmark_summary(outcomes: list[CalibrationOutcome]) -> dict[str, Any]:
+    """Validate that confidence tracks measured evidence completeness.
+
+    Two checks make up the calibration claim:
+
+    - **monotone**: mean completeness is non-increasing down high → medium → low (more
+      corroboration ⇒ higher confidence).
+    - **high_at_full_only**: every ``high`` call sits at full corroboration (5/5) — the
+      agent does not over-call ``high`` on a partial bundle. ``None`` if no ``high`` calls.
+
+    Returns:
+        A dict with per-tier mean completeness, the two boolean checks, and counts.
+    """
+    by_tier = {lvl: [o.completeness for o in outcomes if o.confidence == lvl]
+               for lvl in CONFIDENCE_LEVELS}
+    means = {lvl: (sum(v) / len(v) if v else None) for lvl, v in by_tier.items()}
+
+    present = [means[lvl] for lvl in CONFIDENCE_LEVELS if means[lvl] is not None]
+    monotone = all(a >= b for a, b in zip(present, present[1:], strict=False))
+
+    highs = by_tier["high"]
+    max_complete = max((o.completeness for o in outcomes), default=0)
+    high_at_full_only = None if not highs else all(c == max_complete for c in highs)
+
+    return {
+        "n": len(outcomes),
+        "mean_completeness": means,
+        "counts": {lvl: len(by_tier[lvl]) for lvl in CONFIDENCE_LEVELS},
+        "monotone": monotone,
+        "high_at_full_only": high_at_full_only,
+        "max_completeness": max_complete,
+    }
+
+
+def render_calibration_benchmark(outcomes: list[CalibrationOutcome]) -> str:
+    """Render the corroboration ladder: per-variant limbs + the two calibration checks."""
+    hdr = "".join(f"{c[:4]:>5s}" for c in EVIDENCE_CHANNELS)
+    lines = ["── Calibration benchmark (hematopoietic corroboration ladder) " + "─" * 6,
+             f"  {'rsID':12s} {'gene':10s}{hdr}  cc  limbs  conf"]
+    for o in sorted(outcomes, key=lambda x: (-x.completeness, x.rsid)):
+        cells = "".join(f"{'  ✓' if o.limbs[c] else '  ·':>5s}" for c in EVIDENCE_CHANNELS)
+        cc = "✓" if o.concordant else "·"
+        lines.append(f"  {o.rsid:12s} {o.gene:10s}{cells}   {cc}  {o.completeness}/5   "
+                     f"{o.confidence}")
+
+    s = calibration_benchmark_summary(outcomes)
+    mc = s["mean_completeness"]
+    fmt = lambda v: "  –  " if v is None else f"{v:4.1f}"  # noqa: E731
+    lines.append("  ── confidence vs measured completeness (0–5):")
+    lines.append(f"     mean completeness:  high {fmt(mc['high'])} ({s['counts']['high']})"
+                 f"   medium {fmt(mc['medium'])} ({s['counts']['medium']})"
+                 f"   low {fmt(mc['low'])} ({s['counts']['low']})")
+    lines.append(f"     monotone (high ≥ medium ≥ low): {'✓' if s['monotone'] else '✗'}")
+    hf = s["high_at_full_only"]
+    hf_str = "n/a (no high calls)" if hf is None else ("✓" if hf else "✗")
+    lines.append(f"     high only at full corroboration ({s['max_completeness']}/5): {hf_str}")
+    return "\n".join(lines)

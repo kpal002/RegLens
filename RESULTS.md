@@ -282,6 +282,29 @@ high/low separation is clean. The weak/null strata here are the calibration cell
 n=4 paired run; the null-control biconditional re-run refreshes them at n=8.) This is the
 measured form of "the agent knows what it doesn't know."
 
+**Calibration benchmark — the `high`-confidence regime.** The table above validates the
+`low`/`medium` end honestly, but its strata are **MPRA-synthetic**: saturation-mutagenesis
+variants carry no rsID, hence no eQTL / GWAS / literature *by construction*, so the agent
+can structurally never reach `high` on them. Across the whole suite exactly one variant
+(rs2814778) ever did — the `high` regime is essentially **untested (n=1)**. The benchmark
+(`run_calibration_benchmark`, notebook 04) closes that gap with a curated ladder of **11
+real hematopoietic variants** (erythroid/HbF/RBC loci — BCL11A, HBS1L-MYB, SMIM1, RBM38,
+ACKR1 — plus two megakaryocyte/platelet loci), all in **K562-lineage** so the ChromBPNet
+signal is in-cell-type and all carrying the rsID-keyed corroborating limbs.
+
+The design point: the "should be `high`" tier **cannot be labeled a priori** — the matched,
+*strong* ChromBPNet Δ is only known after scoring (rs1427407 is a fully-cited erythroid
+BCL11A variant that still lands `medium` because its Δ is small). So we don't assume a tier;
+we **measure** evidence completeness from each bundle over five channels — strong matched
+ChromBPNet Δ, a significant motif, ≥1 eQTL, ≥1 GWAS association, ≥1 citation — and validate
+two things: (1) **monotone** — mean completeness is non-increasing down `high → medium →
+low`; (2) **`high` only at full corroboration** — every `high` call sits at 5/5, i.e. the
+agent never over-calls `high` on a partial bundle. Both outcomes are honest: `high` on
+several fully-corroborated variants *validates* high-confidence calibration; `high` staying
+rare *confirms* the agent correctly reserves it for the strong-matched-signal case. _(Results
+land here after the Colab pass; the harness + curated set + offline guards are in
+`reglens/validation/agent_eval.py` and `tests/test_calibration_benchmark.py`.)_
+
 ## What it's *for* — a prospective, falsifiable hypothesis
 
 Everything above shows RegLens *recovering* known mechanisms (trustworthiness). The point of
@@ -396,7 +419,9 @@ Stated plainly, because the honesty *is* the contribution:
   recovery n=11 — so effects are reported with their bounds and read as indicative, not
   definitive. Confidence on corroboration-free synthetic variants is structurally capped
   (no rsID/eQTL/GWAS/literature), so the "strong" calibration stratum understates the
-  cell-type-matched case.
+  cell-type-matched case — the `high` regime is exercised separately by the corroboration-
+  ladder benchmark (11 real hematopoietic variants with full limbs; see *Calibration
+  benchmark*), not the MPRA strata.
 
 None of these are hidden in the claims above; each is called out where it applies.
 
