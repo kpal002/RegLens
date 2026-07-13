@@ -156,8 +156,7 @@ accessibility). This cleanly proves **one direction**: *engine quiet → agent d
 deliberations, zero confabulations — and the expanded library, which surfaces more motifs to
 be tempted by, left that at zero).
 
-**Arm 3 — strong-signal positives (should assert): the other direction.** _(Numbers below
-are from the 3-motif run — this arm is a separate `run_strong_positive_control` cell,
+**Arm 3 — strong-signal positives (should assert): the other direction.**
 Two hand-picked demos are anecdote, not control — a skeptic can say "maybe it just stays
 silent on everything." So `run_strong_positive_control` selects positives by **top
 `|ChromBPNet Δ|`** (`rank_positives_by_signal`) — *forcing the engine to fire* — then asks
