@@ -601,9 +601,25 @@ def _concordant(bundle: Any) -> bool:
     return top.delta_score * cp.delta_log_counts > 0
 
 
+def _modal_conf(confidences: list[str]) -> str:
+    """Most-frequent confidence, tie-broken to the *lower* rank (conservative)."""
+    if not confidences:
+        return "low"
+    c = Counter(confidences)
+    top = max(c.values())
+    tied = [lvl for lvl in CONFIDENCE_LEVELS if c.get(lvl, 0) == top]
+    return min(tied, key=lambda lvl: _CONF_RANK[lvl])
+
+
 @dataclass
 class CalibrationOutcome:
-    """One benchmark variant: measured evidence completeness vs the agent's confidence."""
+    """One benchmark variant: measured evidence completeness vs the confidence *distribution*.
+
+    The deterministic bundle (and hence ``completeness`` / ``concordant``) is built once;
+    the agent is run ``repeats`` times over it, so ``confidences`` is a distribution, not a
+    single stochastic draw. :attr:`confidence` collapses it to the modal (conservative)
+    tier for the per-variant calibration checks.
+    """
 
     rsid: str
     gene: str
@@ -611,9 +627,24 @@ class CalibrationOutcome:
     limbs: dict[str, bool]
     completeness: int
     concordant: bool
-    confidence: str
-    interpretation: Any
-    result: Any = None
+    confidences: list[str]
+    interpretations: list[Any] = field(default_factory=list)
+    results: list[Any] = field(default_factory=list)
+
+    @property
+    def confidence(self) -> str:
+        """Modal confidence across the repeats (conservative tie-break)."""
+        return _modal_conf(self.confidences)
+
+    @property
+    def interpretation(self) -> Any:
+        """A representative interpretation (the first repeat) for the transcript."""
+        return self.interpretations[0] if self.interpretations else None
+
+    def distribution(self) -> dict[str, int]:
+        """``{level: count}`` over the repeats."""
+        c = Counter(self.confidences)
+        return {lvl: c.get(lvl, 0) for lvl in CONFIDENCE_LEVELS}
 
 
 def run_calibration_benchmark(
@@ -625,13 +656,17 @@ def run_calibration_benchmark(
     client: HttpClient | None = None,
     min_delta: float = 0.30,
     sig_alpha: float = 0.05,
+    repeats: int = 1,
     progress: bool = False,
 ) -> list[CalibrationOutcome]:
-    """Run the agent on the corroboration ladder and pair confidence with evidence limbs.
+    """Run the agent on the corroboration ladder and pair its confidence with evidence limbs.
 
-    For each variant: resolve the rsID, build the deterministic bundle (which fetches the
-    eQTL/GWAS/literature limbs live), run the interpreter, and record the *measured*
-    completeness (:func:`evidence_limbs`) alongside the agent's confidence.
+    For each variant: resolve the rsID, build the deterministic bundle **once** (which
+    fetches the eQTL/GWAS/literature limbs live), then run the interpreter ``repeats``
+    times over that same bundle. The confidence distribution across repeats — not a single
+    stochastic draw — is recorded alongside the *measured* completeness
+    (:func:`evidence_limbs`). Building the bundle once keeps the deterministic side cheap;
+    only the agent calls multiply.
 
     Args:
         interpreter: Multi-agent interpreter (``deliberate`` used when available).
@@ -641,58 +676,88 @@ def run_calibration_benchmark(
         client: HTTP client for the annotation tools + rsID resolution.
         min_delta: "Strong ChromBPNet" threshold passed to :func:`evidence_limbs`.
         sig_alpha: Motif significance threshold passed to :func:`evidence_limbs`.
+        repeats: Agent runs per variant (a single draw is too noisy for calibration —
+            we saw tier flips run-to-run). The bundle is reused across repeats.
         progress: Print a per-variant marker.
 
     Returns:
-        One :class:`CalibrationOutcome` per variant.
+        One :class:`CalibrationOutcome` per variant that produced ≥1 usable draw.
     """
     variants = variants if variants is not None else HEMATOPOIETIC_CALIBRATION
     outcomes: list[CalibrationOutcome] = []
     for i, cv in enumerate(variants, 1):
-        # Per-variant resilience: a transient resolve/tool/API error on one variant
-        # skips it rather than killing the whole run (mirrors the discovery screen).
+        # Per-variant resilience: a transient resolve/tool error skips the variant rather
+        # than killing the whole run (mirrors the discovery screen).
         try:
             variant = resolve_variant(cv.rsid, client, prefer_alt=cv.alt)
             bundle = analyze_variant(
                 variant, rsid=cv.rsid, celltype=cv.celltype or None,
                 genome_path=genome_path, scorer=scorer, client=client,
             )
-            if hasattr(interpreter, "deliberate"):
-                result = interpreter.deliberate(bundle)
-                interp = result.interpretation
-            else:
-                result = None
-                interp = interpreter.interpret(bundle)
-        except Exception as exc:  # noqa: BLE001 - one bad variant shouldn't abort the run
+        except Exception as exc:  # noqa: BLE001
             if progress:
                 print(f"  [{i}/{len(variants)}] {cv.rsid} ({cv.gene}) SKIPPED ({exc})")
             continue
+
+        confidences: list[str] = []
+        interps: list[Any] = []
+        results: list[Any] = []
+        for r in range(repeats):
+            # Per-repeat resilience: one failed deliberation drops that draw, not the variant.
+            try:
+                if hasattr(interpreter, "deliberate"):
+                    result = interpreter.deliberate(bundle)
+                    interp = result.interpretation
+                else:
+                    result = None
+                    interp = interpreter.interpret(bundle)
+            except Exception as exc:  # noqa: BLE001
+                if progress:
+                    print(f"      repeat {r + 1}/{repeats} of {cv.rsid} skipped ({exc})")
+                continue
+            confidences.append(_conf(interp))
+            interps.append(interp)
+            results.append(result)
+        if not confidences:  # every repeat failed
+            if progress:
+                print(f"  [{i}/{len(variants)}] {cv.rsid} ({cv.gene}) SKIPPED (no draws)")
+            continue
+
         limbs = evidence_limbs(bundle, min_delta=min_delta, sig_alpha=sig_alpha)
-        outcomes.append(CalibrationOutcome(
+        outcome = CalibrationOutcome(
             rsid=cv.rsid, gene=cv.gene, variant=variant,
             limbs=limbs, completeness=sum(limbs.values()),
-            concordant=_concordant(bundle), confidence=_conf(interp),
-            interpretation=interp, result=result,
-        ))
+            concordant=_concordant(bundle), confidences=confidences,
+            interpretations=interps, results=results,
+        )
+        outcomes.append(outcome)
         if progress:
             got = "".join(k[0].upper() for k in EVIDENCE_CHANNELS if limbs[k]) or "-"
+            dist = "/".join(f"{lvl[0]}{outcome.distribution()[lvl]}" for lvl in CONFIDENCE_LEVELS)
             print(f"  [{i}/{len(variants)}] {cv.rsid} ({cv.gene}) "
-                  f"limbs={got} ({sum(limbs.values())}/5) conf={_conf(interp)}")
+                  f"limbs={got} ({outcome.completeness}/5) conf={outcome.confidence} "
+                  f"[{dist} over {len(confidences)}]")
     return outcomes
 
 
 def calibration_benchmark_summary(outcomes: list[CalibrationOutcome]) -> dict[str, Any]:
     """Validate that confidence tracks measured evidence completeness.
 
-    Two checks make up the calibration claim:
+    Per-variant checks use the modal confidence; the over-call check also inspects every
+    raw draw (a single stray ``high`` draw below full corroboration is a calibration miss
+    even if it isn't the modal tier):
 
     - **monotone**: mean completeness is non-increasing down high → medium → low (more
-      corroboration ⇒ higher confidence).
-    - **high_at_full_only**: every ``high`` call sits at full corroboration (5/5) — the
-      agent does not over-call ``high`` on a partial bundle. ``None`` if no ``high`` calls.
+      corroboration ⇒ higher modal confidence).
+    - **high_at_full_only**: every modal-``high`` variant sits at full corroboration — the
+      agent does not over-call ``high`` on a partial bundle. ``None`` if no modal-high.
+    - **high_draws_below_full**: count of individual ``high`` *draws* on sub-full bundles
+      (0 is the strong statement — high is never even sampled without full corroboration).
+    - **by_completeness**: the raw confidence distribution bucketed by completeness — the
+      distribution-based calibration table across all draws.
 
     Returns:
-        A dict with per-tier mean completeness, the two boolean checks, and counts.
+        A dict with per-tier mean completeness, the checks, counts, and the draw table.
     """
     by_tier = {lvl: [o.completeness for o in outcomes if o.confidence == lvl]
                for lvl in CONFIDENCE_LEVELS}
@@ -705,36 +770,60 @@ def calibration_benchmark_summary(outcomes: list[CalibrationOutcome]) -> dict[st
     max_complete = max((o.completeness for o in outcomes), default=0)
     high_at_full_only = None if not highs else all(c == max_complete for c in highs)
 
+    # Draw-level distribution bucketed by completeness (0–5).
+    by_completeness: dict[int, dict[str, int]] = {}
+    for o in outcomes:
+        bucket = by_completeness.setdefault(o.completeness, {lvl: 0 for lvl in CONFIDENCE_LEVELS})
+        for lvl, cnt in o.distribution().items():
+            bucket[lvl] += cnt
+    high_draws_below_full = sum(
+        d["high"] for comp, d in by_completeness.items() if comp < max_complete
+    )
+    total_draws = sum(len(o.confidences) for o in outcomes)
+
     return {
         "n": len(outcomes),
+        "total_draws": total_draws,
         "mean_completeness": means,
         "counts": {lvl: len(by_tier[lvl]) for lvl in CONFIDENCE_LEVELS},
         "monotone": monotone,
         "high_at_full_only": high_at_full_only,
+        "high_draws_below_full": high_draws_below_full,
+        "by_completeness": by_completeness,
         "max_completeness": max_complete,
     }
 
 
 def render_calibration_benchmark(outcomes: list[CalibrationOutcome]) -> str:
-    """Render the corroboration ladder: per-variant limbs + the two calibration checks."""
+    """Render the corroboration ladder: per-variant limbs + distribution + calibration checks."""
     hdr = "".join(f"{c[:4]:>5s}" for c in EVIDENCE_CHANNELS)
     lines = ["── Calibration benchmark (hematopoietic corroboration ladder) " + "─" * 6,
-             f"  {'rsID':12s} {'gene':10s}{hdr}  cc  limbs  conf"]
+             f"  {'rsID':12s} {'gene':10s}{hdr}  cc  limbs  conf   dist(H/M/L)"]
     for o in sorted(outcomes, key=lambda x: (-x.completeness, x.rsid)):
         cells = "".join(f"{'  ✓' if o.limbs[c] else '  ·':>5s}" for c in EVIDENCE_CHANNELS)
         cc = "✓" if o.concordant else "·"
+        d = o.distribution()
+        dist = f"{d['high']}/{d['medium']}/{d['low']}"
         lines.append(f"  {o.rsid:12s} {o.gene:10s}{cells}   {cc}  {o.completeness}/5   "
-                     f"{o.confidence}")
+                     f"{o.confidence:6s} {dist}")
 
     s = calibration_benchmark_summary(outcomes)
     mc = s["mean_completeness"]
     fmt = lambda v: "  –  " if v is None else f"{v:4.1f}"  # noqa: E731
-    lines.append("  ── confidence vs measured completeness (0–5):")
-    lines.append(f"     mean completeness:  high {fmt(mc['high'])} ({s['counts']['high']})"
-                 f"   medium {fmt(mc['medium'])} ({s['counts']['medium']})"
+    lines.append(f"  ── confidence vs measured completeness  "
+                 f"({s['n']} variants × repeats = {s['total_draws']} draws):")
+    lines.append(f"     mean completeness (by modal conf):  high {fmt(mc['high'])} "
+                 f"({s['counts']['high']})   medium {fmt(mc['medium'])} ({s['counts']['medium']})"
                  f"   low {fmt(mc['low'])} ({s['counts']['low']})")
+    lines.append("     draw distribution by completeness (H/M/L):")
+    for comp in sorted(s["by_completeness"], reverse=True):
+        d = s["by_completeness"][comp]
+        lines.append(f"        {comp}/5:  {d['high']:2d} / {d['medium']:2d} / {d['low']:2d}")
     lines.append(f"     monotone (high ≥ medium ≥ low): {'✓' if s['monotone'] else '✗'}")
     hf = s["high_at_full_only"]
-    hf_str = "n/a (no high calls)" if hf is None else ("✓" if hf else "✗")
-    lines.append(f"     high only at full corroboration ({s['max_completeness']}/5): {hf_str}")
+    hf_str = "n/a (no modal-high calls)" if hf is None else ("✓" if hf else "✗")
+    lines.append(f"     modal-high only at full corroboration "
+                 f"({s['max_completeness']}/5): {hf_str}")
+    lines.append(f"     high draws on sub-full bundles: {s['high_draws_below_full']} "
+                 f"(0 = high never even sampled without full corroboration)")
     return "\n".join(lines)

@@ -81,6 +81,19 @@ class _Agent:
         return _Interp(self._map[n])
 
 
+class _CyclingAgent:
+    """Fake interpreter returning a preset confidence sequence per bundle (for repeats)."""
+
+    def __init__(self, seq):
+        self._seq = list(seq)
+        self._i = 0
+
+    def interpret(self, bundle):
+        val = self._seq[self._i % len(self._seq)]
+        self._i += 1
+        return _Interp(val)
+
+
 class TestRunBenchmark:
     def test_end_to_end_with_fakes(self, monkeypatch):
         variants = [
@@ -111,7 +124,55 @@ class TestRunBenchmark:
         assert summary["max_completeness"] == 5
         rendered = ae.render_calibration_benchmark(outcomes)
         assert "monotone (high ≥ medium ≥ low): ✓" in rendered
-        assert "high only at full corroboration" in rendered
+        assert "modal-high only at full corroboration" in rendered
+
+    def test_repeats_records_distribution(self, monkeypatch):
+        variants = [ae.CalibrationVariant("rsFULL", "G1")]
+        monkeypatch.setattr(ae, "resolve_variant",
+                            lambda rsid, *a, **k: Variant("chr1", 1, "A", "G"))
+        monkeypatch.setattr(ae, "analyze_variant", lambda v, rsid=None, **k: _bundle())
+        # Three draws on the same bundle: high, high, medium -> modal high, dist 2/1/0.
+        agent = _CyclingAgent(["high", "high", "medium"])
+        outcomes = ae.run_calibration_benchmark(agent, variants, scorer=object(),
+                                                genome_path="x", repeats=3)
+        o = outcomes[0]
+        assert o.confidences == ["high", "high", "medium"]
+        assert o.distribution() == {"high": 2, "medium": 1, "low": 0}
+        assert o.confidence == "high"                 # modal
+        assert o.interpretation.confidence == "high"  # representative = first draw
+        s = ae.calibration_benchmark_summary(outcomes)
+        assert s["total_draws"] == 3
+        assert s["by_completeness"][5] == {"high": 2, "medium": 1, "low": 0}
+
+    def test_modal_ties_break_conservative(self):
+        # 1 high, 1 low on a bundle -> tie broken to the lower tier.
+        o = ae.CalibrationOutcome(
+            rsid="rs", gene="G", variant=Variant("chr1", 1, "A", "G"),
+            limbs={k: True for k in ae.EVIDENCE_CHANNELS}, completeness=5,
+            concordant=True, confidences=["high", "low"],
+        )
+        assert o.confidence == "low"
+
+    def test_failed_repeat_dropped_run_survives(self, monkeypatch):
+        variants = [ae.CalibrationVariant("rsA", "G")]
+        monkeypatch.setattr(ae, "resolve_variant",
+                            lambda rsid, *a, **k: Variant("chr1", 1, "A", "G"))
+        monkeypatch.setattr(ae, "analyze_variant", lambda v, rsid=None, **k: _bundle())
+
+        class _FlakyAgent:
+            def __init__(self):
+                self.n = 0
+
+            def interpret(self, bundle):
+                self.n += 1
+                if self.n == 2:
+                    raise RuntimeError("transient")
+                return _Interp("medium")
+
+        outcomes = ae.run_calibration_benchmark(_FlakyAgent(), variants, scorer=object(),
+                                                genome_path="x", repeats=3)
+        assert len(outcomes) == 1
+        assert outcomes[0].confidences == ["medium", "medium"]  # the failed draw dropped
 
 
 class TestSummaryChecks:
@@ -120,7 +181,7 @@ class TestSummaryChecks:
             rsid=rsid, gene="G", variant=Variant("chr1", 1, "A", "G"),
             limbs={k: False for k in ae.EVIDENCE_CHANNELS},
             completeness=completeness, concordant=False,
-            confidence=confidence, interpretation=None,
+            confidences=[confidence],
         )
 
     def test_non_monotone_flagged(self):
@@ -139,7 +200,7 @@ class TestSummaryChecks:
         outs = [self._outcome(4, "medium"), self._outcome(1, "low")]
         s = ae.calibration_benchmark_summary(outs)
         assert s["high_at_full_only"] is None
-        assert "n/a (no high calls)" in ae.render_calibration_benchmark(outs)
+        assert "n/a (no modal-high calls)" in ae.render_calibration_benchmark(outs)
 
 
 def test_curated_set_well_formed():
