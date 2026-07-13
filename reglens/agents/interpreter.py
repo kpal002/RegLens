@@ -20,12 +20,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
-from reglens.agents._llm import StructuredCaller
+from reglens.agents._llm import DEFAULT_MODEL, StructuredCaller
 from reglens.report.schema import EvidenceBundle
-
-# Default model for interpretation. Opus 4.8 is the current most-capable model;
-# the reasoning here (bridging numbers to a defensible mechanism) benefits from it.
-DEFAULT_MODEL = "claude-opus-4-8"
 
 # The system prompt encodes RegLens's golden rules for the reasoning layer.
 SYSTEM_PROMPT = """\

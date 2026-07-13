@@ -161,6 +161,9 @@ pip install -e ".[dev]"            # core + tests (offline stub backend, no Tens
 # pip install -e ".[mcp]"          # + MCP SDK to run the tool layer as an MCP server
 ```
 
+The reasoning layer defaults to `claude-opus-4-8` with adaptive thinking; override the
+model with `REGLENS_MODEL_ID` (e.g. `export REGLENS_MODEL_ID=claude-sonnet-5`).
+
 ## Quickstart
 
 ```bash

@@ -11,7 +11,13 @@ lazily and a client may be injected for offline testing.
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
+
+# Canonical default model for the whole reasoning layer. Opus 4.8 is the current
+# most-capable model; `thinking: {"type": "adaptive"}` (used below) is its correct
+# on-mode. Overridable via ``$REGLENS_MODEL_ID`` so a model bump is a config change.
+DEFAULT_MODEL = os.environ.get("REGLENS_MODEL_ID", "claude-opus-4-8")
 
 
 def extract_json(text: str) -> dict[str, Any]:
@@ -78,7 +84,7 @@ class StructuredCaller:
     def __init__(
         self,
         client: Any | None = None,
-        model: str = "claude-opus-4-8",
+        model: str = DEFAULT_MODEL,
         max_tokens: int = 8000,
         use_structured: bool = True,
     ) -> None:
