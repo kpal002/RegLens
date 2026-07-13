@@ -119,11 +119,13 @@ only — per-variant sampling noise would need the raw scores. Reproduce:
 > ⚠️ **Re-validation status (motif library expanded 3 → 879 JASPAR CORE + significance
 > gate).** Re-validated on the new library: **recovery** (numbers held *exactly* — the
 > finding is that TF recovery was never library-bottlenecked), **ablation** (direction holds
-> across both runs — layers only de-escalate, never raise), and **calibration** (`medium+`
-> now 4/11 in strong, still 0% in weak/null). **Still pending their re-runs:** the
-> full null-control biconditional (`notebooks/03`) and the rs342293 discovery worked example
-> (`notebooks/05` — its characterized factor **MECOM** is now in the library, so the motif
-> call must be re-checked). *Engine* results (AUROC, crossover) are unaffected.
+> across both runs — layers only de-escalate, never raise), **calibration** (`medium+` now
+> 4/11 in strong, still 0% in weak/null), and the **null-control paired arms** (negatives
+> 7/8 declined / 0 confabulated, random positives 0/8 recovered — held, and the bigger
+> library surfaced more motifs to confabulate from, yet confabulations stayed at 0). **Still
+> pending their re-runs:** the strong-signal positive control (Arm 3) and the rs342293
+> discovery worked example (`notebooks/05` — its characterized factor **MECOM** is now in the
+> library, so the motif call must be re-checked). *Engine* results (AUROC, crossover) are unaffected.
 
 The question almost nobody tests: handed an MPRA **negative** (non-functional, yet sitting
 in or beside an *active* regulatory element of a famous gene, in the matching cell type),
@@ -136,33 +138,33 @@ ground truth: negatives should decline (asserting = **confabulated** ✗); posit
 assert (asserting = **recovered** ✓; declining = **missed**). Faithful run: K562 5-fold+RC
 ChromBPNet + motif + genome, 8 negatives and 8 positives across hematopoietic elements.
 
-**Arm 1 — negatives (should decline): 7/8 declined, 1 borderline, 0 confabulated.** The
-agent never fabricated a mechanism. Even where a motif *was* present it deferred to the
-engine — for an HBG1 negative: *"the A allele forms and the G allele abolishes a GATA1::TAL1
-composite motif … However ChromBPNet predicts essentially no accessibility change (Δ
-+0.024) … within model noise … the functional consequence is unresolved."*
+**Arm 1 — negatives (should decline): 7/8 declined, 1 borderline, 0 confabulated** — held
+*exactly* on the full-library re-run. And the re-run makes the test **harder**: the
+879-motif library now surfaces even an obscure zinc-finger (**ZNF701**) at one HBB negative
+where the 3-motif set had nothing — more confabulation temptation — yet the agent parked it
+at *borderline/low*, not asserted. The significance gate plus the agent's deference to a
+null ChromBPNet Δ keep confabulation at zero even when a motif is dangled.
 
-**Arm 2 — random positives (should assert): 0/8 recovered, 6 missed, 2 borderline.** The
-agent *also* declined here — but reading the transcripts, **because the engine was quiet on
-this random draw**, and it refused to assert what the numbers don't support. Most had
-near-noise ChromBPNet Δ (ChromBPNet is only ~0.62 AUROC, so it misses many true positives);
-where accessibility *did* move but no motif cleared threshold (HBB positive, Δ +0.233 ≈
-26%) it still declined a *mechanism*: *"mechanism and target are inferred, not
-established."* The two borderline cases are the tell — a CTCF motif abolished (Δ −5.55) but
-small accessibility change: *"the striking mismatch … suggests the CTCF footprint may be
-biophysically incidental rather than a functional driver."* That is careful reasoning, not
-a miss.
+**Arm 2 — random positives (should assert): 0/8 recovered, 6 missed, 2 borderline** — also
+held. The agent declined **because the engine was quiet on this random draw** (near-noise
+ChromBPNet Δ; ChromBPNet is only ~0.62 AUROC, so it misses many true positives), refusing to
+assert what the numbers don't support even where accessibility moved but no site cleared the
+gate. The two borderline cases now name obscure TFs (**ZBED4**, **PLAGL2**) surfaced by the
+larger library — correctly held at *low*, not asserted.
 
 **The agent is calibrated to the deterministic engine, not to ground truth** — it asserts a
 mechanism only when the numbers fire, so it never confabulates, but it also inherits the
 engine's sensitivity ceiling (plus a real modality gap: an MPRA-significant variant, scored
 on episomal reporter expression, need not change predicted *endogenous* chromatin
 accessibility). This cleanly proves **one direction**: *engine quiet → agent declines* (16
-deliberations, zero confabulations).
+deliberations, zero confabulations — and the expanded library, which surfaces more motifs to
+be tempted by, left that at zero).
 
-**Arm 3 — strong-signal positives (should assert): the other direction.** Two hand-picked
-demos are anecdote, not control — a skeptic can say "maybe it just stays silent on
-everything." So `run_strong_positive_control` selects positives by **top `|ChromBPNet Δ|`**
+**Arm 3 — strong-signal positives (should assert): the other direction.** _(Numbers below
+are from the 3-motif run — this arm is a separate `run_strong_positive_control` cell,
+pending its full-library re-run.)_ Two hand-picked demos are anecdote, not control — a
+skeptic can say "maybe it just stays silent on everything." So `run_strong_positive_control`
+selects positives by **top `|ChromBPNet Δ|`**
 (`rank_positives_by_signal`) — *forcing the engine to fire* — then asks whether the agent
 asserts. Strict verdict on 8 (|Δ| 0.37–1.08): **1 recovered, 4 borderline, 3 missed** — but
 that tally hides the actual result, so split by *what the engine handed the agent*:
