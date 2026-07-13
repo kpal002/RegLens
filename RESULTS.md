@@ -294,17 +294,23 @@ did not manufacture a hit from 100 real associations. (The path to a clean quadr
 screening **fine-mapped credible-set** variants, enriched for the causal allele, rather than
 lead SNPs — a stated future direction.)
 
-**The prospective lead: `rs342293` (platelet count).** From the curated pool, it is the
-**highest-`|Δ|` sparse-literature blood-trait variant across ~110 screened** (Δ0.22 — above
-all 100 unbiased leads; the only higher signals are the solved, dense-literature controls
-like Duffy). It carries a **concordant GATA1 motif** (GATA1 is a megakaryocyte master
-regulator — coherent for platelets), sits in a **proximal-enhancer cCRE** (chr7:106731773
-C>A, distance 0), has a real **platelet-count** GWAS association, and **no GTEx eQTL**
-(megakaryocytes are absent from GTEx — a panel gap, not disconfirmation). It **misses the
-pre-registered quadrant** (Δ0.22 < the 0.30 bar, which we did **not** lower), so it is
-reported as a *moderate-signal* prospective hypothesis with a named falsification test in
-[`docs/prospective_hypothesis_rs342293.md`](docs/prospective_hypothesis_rs342293.md) — the
-honest output of a tool disciplined enough to say "worth testing," not "proven."
+**The best lead was already solved — and catching that is the point.** The screen's top
+sparse-literature candidate, `rs342293` (platelet count, Δ0.22, concordant GATA1 motif, in a
+proximal enhancer), *looked* novel to our pipeline — our literature tool returned only 1
+hit. The **mandatory manual novelty check** found it is a **characterized** 7q22.3 locus: the
+major allele is bound by **EVI1/MECOM**, repressing **PIK3CG** in **megakaryocytes** (PMID
+19221038; Paul et al. 2011). So **we do not claim it.** The guardrail worked, and it exposed
+two of our own limits honestly: (1) our literature tool *missed the papers* — the exact
+reason novelty must be verified by hand; and (2) our motif tool called **GATA1** where the
+characterized factor is **EVI1/MECOM** (the motif-library ceiling), with the K562 signal an
+off-lineage echo of a megakaryocyte-specific mechanism. See
+[`docs/discovery_worked_example_rs342293.md`](docs/discovery_worked_example_rs342293.md).
+
+**Net:** no novel hypothesis survived verification this pass — a truthful, common outcome of
+rigorous screening, and a *stronger* result than a manufactured claim: the tool refuses to
+rubber-stamp (0/100), and the human-in-the-loop guardrail caught a case the automation got
+wrong. A genuinely novel, defensible hypothesis would need **fine-mapped credible-set
+variants** plus deeper manual vetting — stated future work, not forced here.
 
 ## Reproduce
 
