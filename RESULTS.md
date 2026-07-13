@@ -116,16 +116,12 @@ only — per-variant sampling noise would need the raw scores. Reproduce:
 
 ## Agent null control — does it confabulate, and does it track the evidence?
 
-> ⚠️ **Re-validation status (motif library expanded 3 → 879 JASPAR CORE + significance
-> gate).** Re-validated on the new library: **recovery** (numbers held *exactly* — the
-> finding is that TF recovery was never library-bottlenecked), **ablation** (direction holds
-> across both runs — layers only de-escalate, never raise), **calibration** (`medium+` now
-> 4/11 in strong, still 0% in weak/null), and the **full null-control biconditional** (all
-> three arms: 24 deliberations, **0 confabulations** — the bigger library surfaces *more*
-> motifs to be tempted by, and the significance-gate `p_value` now visibly steers the
-> confidence of every call). **Still pending:** only the rs342293 discovery worked example
-> (`notebooks/05` — its characterized factor **MECOM** is now in the library, so the motif
-> call must be re-checked). *Engine* results (AUROC, crossover) are unaffected.
+> **All agent results below are re-validated on the current motif library** (full JASPAR
+> CORE, 879 matrices + empirical significance gate). Every headline held — recovery 8/11,
+> the null-control biconditional (24 deliberations, 0 confabulations), calibration
+> (`medium+` 0/0/36%), and the ablation direction (layers only de-escalate) — and the
+> significance-gate `p_value` now visibly steers the agent's confidence. *Engine* results
+> (AUROC, crossover) were never affected.
 
 The question almost nobody tests: handed an MPRA **negative** (non-functional, yet sitting
 in or beside an *active* regulatory element of a famous gene, in the matching cell type),
@@ -313,24 +309,31 @@ that, under discipline that spends none of the credibility earned above:
 **The screen refuses to rubber-stamp GWAS hits — and that's the result.** Running the
 pipeline over **100 unbiased blood-trait GWAS variants** (pulled straight from the GWAS
 Catalog via `fetch_gwas_variants`, not hand-picked) returned **0 candidates in the discovery
-quadrant** — and almost every variant had `|ChromBPNet Δ| < 0.12`. That is expected and
-honest: a GWAS *lead* SNP is usually an LD *tag*, not the causal variant, so the engine
-correctly sees little effect; and many blood traits act in megakaryocyte/lymphoid lineages,
-not erythroid K562. The tool demands a genuine sequence effect that raw tag SNPs lack — it
-did not manufacture a hit from 100 real associations. (The path to a clean quadrant hit is
-screening **fine-mapped credible-set** variants, enriched for the causal allele, rather than
-lead SNPs — a stated future direction.)
+quadrant** — re-confirmed on the full 879-motif library (max `|ChromBPNet Δ|` = 0.18, all
+under the 0.30 "engine fires" bar). The expanded library makes the point cleaner: it now
+*labels* ~1 in 4 of these variants with a TF (CTCF, TBX15, Bcl11B, …), several concordant —
+**yet none clear the quadrant, because they all sit at weak |Δ|.** So it is demonstrably the
+*engine's* effect-size gate, not motif coverage, doing the filtering: a GWAS *lead* SNP is
+usually an LD *tag*, not the causal variant, so the engine correctly sees little effect (and
+many blood traits act in megakaryocyte/lymphoid lineages, not erythroid K562). The tool
+demands a genuine sequence effect that raw tag SNPs lack — it did not manufacture a hit from
+100 real associations. (Path to a clean quadrant hit: **fine-mapped credible-set** variants,
+enriched for the causal allele — stated future work.)
 
-**The best lead was already solved — and catching that is the point.** The screen's top
-sparse-literature candidate, `rs342293` (platelet count, Δ0.22, concordant GATA1 motif, in a
-proximal enhancer), *looked* novel to our pipeline — our literature tool returned only 1
-hit. The **mandatory manual novelty check** found it is a **characterized** 7q22.3 locus: the
-major allele is bound by **EVI1/MECOM**, repressing **PIK3CG** in **megakaryocytes** (PMID
-19221038; Paul et al. 2011). So **we do not claim it.** The guardrail worked, and it exposed
-two of our own limits honestly: (1) our literature tool *missed the papers* — the exact
-reason novelty must be verified by hand; and (2) our motif tool called **GATA1** where the
-characterized factor is **EVI1/MECOM** (the motif-library ceiling), with the K562 signal an
-off-lineage echo of a megakaryocyte-specific mechanism. See
+**The best lead was already solved — and catching that is the point.** In an earlier screen
+the top sparse-literature candidate, `rs342293` (platelet count, Δ0.22, in a proximal
+enhancer), *looked* novel to our pipeline — the literature tool returned only 1 hit. The
+**mandatory manual novelty check** found it is a **characterized** 7q22.3 locus: the major
+allele is bound by **EVI1/MECOM**, repressing **PIK3CG** in **megakaryocytes** (PMID
+19221038; Paul et al. 2011). So **we do not claim it.** The guardrail worked, and exposed two
+of our own limits honestly: (1) the literature tool *missed the papers* — the exact reason
+novelty must be verified by hand; and (2) the motif tool named **GATA1** — the strongest
+binder — not the characterized **EVI1/MECOM**. That original call was on the 3-motif library
+(MECOM wasn't in it), but the full-library re-runs confirm the *general* pattern: the tool
+reports the strongest *gated* binder, which is often not the causal TF **even when the causal
+one is available** (GATA1 where FOXA1 / KLF1 is causal). So it's "strongest binder ≠ causal
+TF," which the agent mitigates by weighting the `p_value` and flagging discordance — not a
+coverage ceiling. See
 [`docs/discovery_worked_example_rs342293.md`](docs/discovery_worked_example_rs342293.md).
 
 **Net:** no novel hypothesis survived verification this pass — a truthful, common outcome of

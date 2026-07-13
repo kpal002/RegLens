@@ -32,9 +32,14 @@ associated with red-blood-cell traits).
    **missed the primary papers**. Had we trusted the tool, we would have made a false
    novelty claim. The rule "*verify by hand; never trust the literature tool*" did exactly
    its job. This is the single best argument for the discipline.
-2. **It exposed a motif-call divergence.** Our motif tool named **GATA1**; the characterized
-   factor is **EVI1/MECOM**. GATA1 was the closest match in our bundled JASPAR subset, not
-   the operative TF — an honest instance of the **motif-library ceiling** (see Limitations).
+2. **It exposed a motif-call divergence.** Our motif tool named **GATA1** — the strongest
+   binder — where the characterized factor is **EVI1/MECOM**. That call was on the earlier
+   3-motif library (MECOM wasn't in it), but the full-library re-runs show the divergence is
+   *general*, not a coverage gap: the tool reports the strongest *gated* site, which is often
+   not the causal TF even when the causal one is available (GATA1 where FOXA1 / KLF1 is
+   causal). The reasoning layer mitigates this — it now weights the empirical `p_value` and
+   flags direction conflicts — but "strongest binder ≠ causal TF" is the honest residual
+   limit (see Limitations), not a library-size ceiling.
 3. **Cell-type was off, as our own caveats predict.** K562 is erythroid; the real mechanism
    is **megakaryocyte-specific**. The 0.22 K562 signal is a partial off-lineage echo, not
    the operative effect — consistent with the calibration finding that the engine's edge is
