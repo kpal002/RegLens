@@ -85,6 +85,22 @@ class TestRunAndRank:
         assert "2 candidate(s) in the discovery quadrant" in rendered
         assert "rsC" in rendered
 
+    def test_bad_candidate_is_skipped_not_crashed(self, monkeypatch):
+        import urllib.error
+        cands = [dsc.DiscoveryCandidate("rsGOOD1"), dsc.DiscoveryCandidate("rsBAD"),
+                 dsc.DiscoveryCandidate("rsGOOD2")]
+
+        def fake_resolve(rsid, *a, **k):
+            if rsid == "rsBAD":  # e.g. a merged/withdrawn rsID Ensembl 400s on
+                raise urllib.error.HTTPError("http://x", 400, "Bad Request", {}, None)
+            return Variant("chr6", 1, "A", "G")
+
+        b = _bundle(-0.8, -6.0, "GATA1", ["platelet count"], lit=0)
+        monkeypatch.setattr(dsc, "resolve_variant", fake_resolve)
+        monkeypatch.setattr(dsc, "analyze_variant", lambda v, rsid=None, **k: b)
+        ranked = dsc.run_discovery_screen(cands, scorer=object(), genome_path="x")
+        assert len(ranked) == 2  # the 400 candidate is skipped, the screen finishes
+
     def test_starter_pool_well_formed(self):
         assert len(dsc.BLOOD_TRAIT_CANDIDATES) >= 6
         for c in dsc.BLOOD_TRAIT_CANDIDATES:

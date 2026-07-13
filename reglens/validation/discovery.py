@@ -255,18 +255,27 @@ def run_discovery_screen(
     candidates = candidates if candidates is not None else BLOOD_TRAIT_CANDIDATES
     out: list[tuple[DiscoveryScore, Any]] = []
     for i, cand in enumerate(candidates, 1):
-        variant = cand.variant or (
-            resolve_variant(cand.rsid, client, prefer_alt=cand.alt) if resolve else None
-        )
-        if variant is None:
-            raise ValueError(f"No coordinate for {cand.rsid}; set resolve=True or .variant")
-        bundle = analyze_variant(
-            variant, rsid=cand.rsid, celltype=celltype,
-            genome_path=genome_path, scorer=scorer, client=client,
-        )
-        score = screen_bundle(
-            bundle, min_delta=min_delta, max_literature=max_literature
-        )
+        # One bad candidate (e.g. a merged/withdrawn rsID that Ensembl 400s on, or a
+        # transient tool failure) must not sink a 100-variant screen — skip and continue,
+        # mirroring the orchestrator's per-tool resilience.
+        try:
+            variant = cand.variant or (
+                resolve_variant(cand.rsid, client, prefer_alt=cand.alt) if resolve else None
+            )
+            if variant is None:
+                raise ValueError(f"no coordinate for {cand.rsid}; set resolve=True or .variant")
+            bundle = analyze_variant(
+                variant, rsid=cand.rsid, celltype=celltype,
+                genome_path=genome_path, scorer=scorer, client=client,
+            )
+            score = screen_bundle(
+                bundle, min_delta=min_delta, max_literature=max_literature
+            )
+        except Exception as exc:  # noqa: BLE001 - deliberately resilient per-candidate boundary
+            if progress:
+                print(f"  [{i}/{len(candidates)}] {cand.rsid} SKIPPED "
+                      f"({type(exc).__name__}: {exc})")
+            continue
         out.append((score, bundle))
         if progress:
             flag = "★ QUADRANT" if score.in_quadrant else ""
