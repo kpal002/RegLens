@@ -14,14 +14,15 @@ one task top to bottom.
 
 ## Setup (once per Colab session)
 
+Each notebook is **self-contained** — no zip upload. Just:
+
 1. **Runtime → Change runtime type → GPU.**
-2. Build the repo snapshot locally and upload it:
-   ```bash
-   git archive --format=zip -o reglens_for_colab.zip HEAD   # run in the repo
-   ```
-   Upload `reglens_for_colab.zip` via the Colab **Files** panel.
-3. Run the notebook's setup cells (install → genome + model). The agent notebooks (03–05)
-   also install the Anthropic SDK and need your `ANTHROPIC_API_KEY` pasted into the key cell.
+2. Run the first cell: it **clones the repo** (`git clone …/kpal002/RegLens`) and installs
+   it. Re-running that cell fast-forwards to the latest `main`.
+3. For the agent notebooks (03–05), add your **`ANTHROPIC_API_KEY` as a Colab secret**
+   (🔑 panel in the left sidebar → add it → toggle *Notebook access* on). The key cell reads
+   it from there — it never appears in the notebook. (A one-time hidden prompt is the
+   fallback if the secret isn't set.)
 
 ## Notes
 
