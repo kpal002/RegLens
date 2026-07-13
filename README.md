@@ -31,7 +31,7 @@ declines rather than manufacture a claim.
 | **Agent** | Confabulation — null control, 24 deliberations | **0 confabulations** (≤12%, rule of three) |
 | **Agent** | Known-mechanism recovery (n = 11) | trait **11/11**, gene 10/11, TF 8/11 |
 | **Agent** | Architecture ablation (single vs multi vs +red-team) | layers only ever **lower** overconfidence |
-| **Agent** | Confidence calibration (strong / weak / null) | `medium+` only in strong (**0 / 0 / 45 %**) |
+| **Agent** | Confidence calibration (strong / weak / null) | `medium+` only in strong (**0 / 0 / 36 %**) |
 | **Discovery** | Unbiased GWAS screen (100 variants) | 0 forced hits; guardrail caught a *solved* lead |
 
 Full numbers, transcripts, and caveats: **[`RESULTS.md`](RESULTS.md)**. Every experiment is
@@ -124,7 +124,7 @@ measured it — four experiments, all in [`RESULTS.md`](RESULTS.md), reproducibl
   across two runs) — the red-team and the multi-agent structure each temper an over-read
   strong call, *selectively* (2 of 4 lowered, the rest held) rather than blanket-hedging.
 - **It knows what it doesn't know.** Confidence (high/med/low) across strata: `medium+`
-  appears in **0%** of null and **0%** of weak-effect cases, **45%** of strong known
+  appears in **0%** of null and **0%** of weak-effect cases, **36%** of strong known
   mechanisms — and the lone `high` is reserved for the one variant where every channel,
   *including a cell-type-matched model*, concurs.
 

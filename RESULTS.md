@@ -117,13 +117,13 @@ only — per-variant sampling noise would need the raw scores. Reproduce:
 ## Agent null control — does it confabulate, and does it track the evidence?
 
 > ⚠️ **Re-validation status (motif library expanded 3 → 879 JASPAR CORE + significance
-> gate).** **Recovery is re-validated** on the new library — the numbers held *exactly*
-> (trait 11/11, gene 10/11, TF 8/11), which is itself the finding: TF recovery was never
-> library-bottlenecked (see below for the reframed cause). **Still pending their re-runs:**
-> the null-control arms and the confidence-calibration table (one strong-stratum call,
-> rs1421085, shifted medium→low, so `medium+` is now 4/11 not 5/11), and the rs342293
-> discovery worked example (whose characterized factor **MECOM** is now in the library —
-> its motif call must be re-checked). *Engine* results (AUROC, crossover) are unaffected.
+> gate).** Re-validated on the new library: **recovery** (numbers held *exactly* — the
+> finding is that TF recovery was never library-bottlenecked), **ablation** (direction holds
+> across both runs — layers only de-escalate, never raise), and **calibration** (`medium+`
+> now 4/11 in strong, still 0% in weak/null). **Still pending their re-runs:** the
+> full null-control biconditional (`notebooks/03`) and the rs342293 discovery worked example
+> (`notebooks/05` — its characterized factor **MECOM** is now in the library, so the motif
+> call must be re-checked). *Engine* results (AUROC, crossover) are unaffected.
 
 The question almost nobody tests: handed an MPRA **negative** (non-functional, yet sitting
 in or beside an *active* regulatory element of a famous gene, in the matching cell type),
@@ -260,21 +260,25 @@ ever tightens calibration — is shown, not asserted.)_
 **Confidence calibration.** `calibration_table` tabulates confidence across the three
 strata (assembled from the runs above — reproducible from the interpretation lists):
 
+Full-library run:
+
 | stratum | high | medium | low | medium+ |
 |---|---|---|---|---|
-| **strong** (known mechanism, n=11) | 1 | 4 | 6 | **45%** |
-| **weak** (MPRA-positive, engine-quiet, n=8) | 0 | 0 | 8 | 0% |
-| **null** (MPRA-negative, n=8) | 0 | 0 | 8 | 0% |
+| **strong** (known mechanism, n=11) | 1 | 3 | 7 | **36%** |
+| **weak** (MPRA-positive, engine-quiet, n=4) | 0 | 0 | 4 | 0% |
+| **null** (MPRA-negative, n=4) | 0 | 0 | 4 | 0% |
 
 **The agent never emits `high` or `medium` on a weak or null variant** — no false
-confidence — and `medium+` appears *only* in the known-mechanism stratum (45%), with the
-lone `high` reserved for rs2814778, the one case where every channel *including a
+confidence — and `medium+` appears *only* in the known-mechanism stratum (36%; the
+significance gate dropped one previously-`medium` call, rs1421085, to `low`), with the lone
+`high` reserved for rs2814778, the one case where every channel *including a
 cell-type-matched model* concurs. Confidence tracks evidence strength monotonically:
-0% → 0% → 45%. (Honest: the strong stratum's own ceiling is set by cell-type match — the 6
+0% → 0% → 36%. (Honest: the strong stratum's own ceiling is set by cell-type match — the 7
 `low`s there are mostly variants for which K562 is the wrong model, which the agent refuses
 to over-call rather than a calibration failure; on the cell-type-matched subset the
-high/low separation is clean.) This is the measured form of "the agent knows what it
-doesn't know."
+high/low separation is clean. The weak/null strata here are the calibration cell's quick
+n=4 paired run; the null-control biconditional re-run refreshes them at n=8.) This is the
+measured form of "the agent knows what it doesn't know."
 
 ## What it's *for* — a prospective, falsifiable hypothesis
 
