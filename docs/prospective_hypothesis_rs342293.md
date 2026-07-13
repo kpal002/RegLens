@@ -5,12 +5,15 @@
 > interpretable, uncharacterized, **falsifiable** regulatory mechanism. Read it as a
 > hypothesis with a named killing experiment, not a finding.
 
-**Provenance (honest).** rs342293 surfaced from `run_discovery_screen` as the pool's only
-near-quadrant candidate: concordant GATA1 motif + platelet GWAS + sparse literature. It
-**just misses the pre-registered discovery quadrant** — `|ChromBPNet Δ| = 0.22`, below the
-0.30 "engine fires" threshold set against the strong-signal control. We did **not** lower
-the threshold to admit it; we report it as a *moderate-signal* lead, with that caveat
-stated up front.
+**Provenance (honest).** rs342293 is the strongest sparse-literature lead across **~110
+blood-trait variants screened** — the 9-variant curated pool *plus* 100 unbiased GWAS-Catalog
+variants. That unbiased screen returned **0 quadrant hits** (nearly all `|Δ| < 0.12`: raw
+GWAS lead SNPs are mostly LD tags that don't fire the engine), which makes rs342293's
+`|ChromBPNet Δ| = 0.22` the **highest sparse-literature signal we found** — above all 100
+unbiased leads; the only higher signals are solved, dense-literature controls (Duffy 0.84).
+It still **misses the pre-registered discovery quadrant** — 0.22 is below the 0.30 "engine
+fires" bar set against the strong-signal control — and we did **not** lower the threshold to
+admit it. Reported as a *moderate-signal* lead, that caveat stated up front.
 
 ---
 

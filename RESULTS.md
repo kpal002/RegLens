@@ -283,10 +283,28 @@ that, under discipline that spends none of the credibility earned above:
   multi-agent, and its confidence (expected ~*medium*: engine+motif+GWAS but no
   eQTL/literature limb) and red-team caveats are reported verbatim.
 
-The starter candidate pool (9 blood-trait GWAS variants) is validated live via Ensembl; the
-prospective hypothesis itself is written up from the Colab screen output plus a manual
-literature check, using [`docs/prospective_hypothesis.md`](docs/prospective_hypothesis.md).
-_(Screen + hypothesis to be run on Colab.)_
+**The screen refuses to rubber-stamp GWAS hits — and that's the result.** Running the
+pipeline over **100 unbiased blood-trait GWAS variants** (pulled straight from the GWAS
+Catalog via `fetch_gwas_variants`, not hand-picked) returned **0 candidates in the discovery
+quadrant** — and almost every variant had `|ChromBPNet Δ| < 0.12`. That is expected and
+honest: a GWAS *lead* SNP is usually an LD *tag*, not the causal variant, so the engine
+correctly sees little effect; and many blood traits act in megakaryocyte/lymphoid lineages,
+not erythroid K562. The tool demands a genuine sequence effect that raw tag SNPs lack — it
+did not manufacture a hit from 100 real associations. (The path to a clean quadrant hit is
+screening **fine-mapped credible-set** variants, enriched for the causal allele, rather than
+lead SNPs — a stated future direction.)
+
+**The prospective lead: `rs342293` (platelet count).** From the curated pool, it is the
+**highest-`|Δ|` sparse-literature blood-trait variant across ~110 screened** (Δ0.22 — above
+all 100 unbiased leads; the only higher signals are the solved, dense-literature controls
+like Duffy). It carries a **concordant GATA1 motif** (GATA1 is a megakaryocyte master
+regulator — coherent for platelets), sits in a **proximal-enhancer cCRE** (chr7:106731773
+C>A, distance 0), has a real **platelet-count** GWAS association, and **no GTEx eQTL**
+(megakaryocytes are absent from GTEx — a panel gap, not disconfirmation). It **misses the
+pre-registered quadrant** (Δ0.22 < the 0.30 bar, which we did **not** lower), so it is
+reported as a *moderate-signal* prospective hypothesis with a named falsification test in
+[`docs/prospective_hypothesis_rs342293.md`](docs/prospective_hypothesis_rs342293.md) — the
+honest output of a tool disciplined enough to say "worth testing," not "proven."
 
 ## Reproduce
 
