@@ -35,7 +35,7 @@ declines rather than manufacture a claim.
 | **Discovery** | Unbiased GWAS screen (100 variants) | 0 forced hits; guardrail caught a *solved* lead |
 
 Full numbers, transcripts, and caveats: **[`RESULTS.md`](RESULTS.md)**. Every experiment is
-reproducible on a GPU via **[`notebooks/`](notebooks/)**; the logic is covered by **204
+reproducible on a GPU via **[`notebooks/`](notebooks/)**; the logic is covered by **214
 offline tests**.
 
 ## The demo in one screen
@@ -221,13 +221,13 @@ reglens/
   orchestrator.py · cli.py · genome.py · mcp_server.py
 notebooks/      01_engine_validation · 02_crossover · 03_agent_null_control · 04_agent_reasoning · 05_discovery_screen
 data/benchmarks/  Kircher MPRA benchmark (+ CADD)   figures/  money-shots   docs/  discovery notes
-tests/  (204, all offline)   RESULTS.md   RegLens_spec.md
+tests/  (214, all offline)   RESULTS.md   RegLens_spec.md
 ```
 
 ## Test
 
 ```bash
-pytest                       # 204 tests, fully offline (no network, no GPU, no API key)
+pytest                       # 214 tests, fully offline (no network, no GPU, no API key)
 ruff check reglens tests
 ```
 

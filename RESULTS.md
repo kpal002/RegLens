@@ -116,6 +116,16 @@ only — per-variant sampling noise would need the raw scores. Reproduce:
 
 ## Agent null control — does it confabulate, and does it track the evidence?
 
+> ⚠️ **Re-validation in progress.** Every agent-layer result in the sections below
+> (null control, recovery, ablation, calibration, and the discovery worked example) was
+> generated with the **prior 3-motif** library. The motif library has since been expanded
+> to the **full JASPAR CORE (879 matrices) with an empirical significance gate**, which
+> can change any finding that hinges on whether the motif tool surfaced a TF — the TF
+> non-hits in recovery (e.g. Oct-1/LEF1/GATA3, all now in the library), the null-control
+> "missed" cases, and the rs342293 worked example (whose characterized factor **MECOM** is
+> now present). These numbers are being re-run on the expanded library; treat the *engine*
+> results (AUROC, crossover) as current and the agent numbers below as pending re-validation.
+
 The question almost nobody tests: handed an MPRA **negative** (non-functional, yet sitting
 in or beside an *active* regulatory element of a famous gene, in the matching cell type),
 does the multi-agent invent a plausible-sounding mechanism, or correctly decline?
