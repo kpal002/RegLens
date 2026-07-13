@@ -294,16 +294,52 @@ signal is in-cell-type and all carrying the rsID-keyed corroborating limbs.
 
 The design point: the "should be `high`" tier **cannot be labeled a priori** — the matched,
 *strong* ChromBPNet Δ is only known after scoring (rs1427407 is a fully-cited erythroid
-BCL11A variant that still lands `medium` because its Δ is small). So we don't assume a tier;
-we **measure** evidence completeness from each bundle over five channels — strong matched
-ChromBPNet Δ, a significant motif, ≥1 eQTL, ≥1 GWAS association, ≥1 citation — and validate
-two things: (1) **monotone** — mean completeness is non-increasing down `high → medium →
-low`; (2) **`high` only at full corroboration** — every `high` call sits at 5/5, i.e. the
-agent never over-calls `high` on a partial bundle. Both outcomes are honest: `high` on
-several fully-corroborated variants *validates* high-confidence calibration; `high` staying
-rare *confirms* the agent correctly reserves it for the strong-matched-signal case. _(Results
-land here after the Colab pass; the harness + curated set + offline guards are in
-`reglens/validation/agent_eval.py` and `tests/test_calibration_benchmark.py`.)_
+BCL11A variant that still lands `low`/`medium` because its Δ is small). So we don't assume a
+tier; we **measure** evidence completeness from each bundle over five channels — strong
+matched ChromBPNet Δ (`|Δ log-counts| ≥ 0.30`), a significant gated motif, ≥1 eQTL, ≥1 GWAS
+association, ≥1 citation. A single agent draw is too noisy for a calibration claim (tiers
+flipped run-to-run: rs2814778 `high`→`medium`→`high`, rs1427407 `medium`→`low`), so each
+variant is deliberated **3× over the same bundle** and we report the confidence
+*distribution*, not one draw.
+
+**Result (11 variants × 3 repeats = 33 draws):**
+
+| completeness | high | medium | low |
+|---|---|---|---|
+| **5/5** (rs2814778 — the one fully-corroborated variant) | 2 | 1 | 0 |
+| **3/5** (7 variants: BCL11A, HBS1L-MYB×3, SMIM1, ARHGEF3, …) | 0 | 1 | 20 |
+| **2/5** (3 variants) | 0 | 0 | 9 |
+
+Three checks, all pass: **monotone** ✓ (mean completeness `high` 5.0 > `low` 2.7);
+**modal-`high` only at full corroboration** ✓; and the strong form — **0 `high` draws on any
+sub-full bundle** (0/30): `high` is never *even sampled* without full corroboration. The one
+fully-corroborated variant (rs2814778) reaches `high` in 2/3 draws (the third `medium` — a
+`medium`/`high` boundary call). The sub-full variants are robustly `low`: 29/30 draws `low`,
+the lone exception a single `medium` on rs1427407 (the only other variant pairing an
+erythroid enhancer with a strong eQTL), and it is still modal-`low`.
+
+**Why this is the honest "knows what it doesn't know."** The agent assigns `low` to
+*textbook* loci — BCL11A, HBS1L-MYB — because the **bundle's own functional signal is
+absent**, refusing to let background knowledge inflate confidence. Every transcript says so
+explicitly: rs1427407 → *"rests primarily on genomic overlap and external literature rather
+than the molecular numbers provided here"*; rs9399137 → *"equally consistent with … an LD
+tag for a causal variant elsewhere in the locus."* It calibrates to **retrieved evidence,
+not priors**.
+
+**The honest limitation, stated plainly.** Only **one** variant (rs2814778 — a large-effect
+*functional* Duffy promoter variant on a GATA1::TAL1 site) reaches full corroboration, so the
+`high` stratum is **n=1 variant**. The reason is structural and worth naming: on **LD-tag
+GWAS SNPs** (which the other ten are — the tagged SNP is usually not the causal allele) the
+*local functional* limbs don't fire — the significance gate correctly suppresses
+non-significant motifs (a motif cleared the gate on **1/11**, and a strong matched ChromBPNet
+Δ on **2/11**), the same strictness behind the 0/100 discovery result. Populating a larger
+`high` stratum needs **fine-mapped credible-set causal variants**, not LD-tag GWAS SNPs — the
+same fine-mapping limitation flagged in the [discovery worked example](docs/discovery_worked_example_rs342293.md),
+which this benchmark independently rediscovers. What the benchmark *does* establish, robustly:
+`high` is reserved for the fully-corroborated, strong-matched-signal case and is never sampled
+otherwise. _(Reproducible via `run_calibration_benchmark(..., repeats=3)`, notebook 04; harness
++ curated set + offline guards in `reglens/validation/agent_eval.py` and
+`tests/test_calibration_benchmark.py`.)_
 
 ## What it's *for* — a prospective, falsifiable hypothesis
 
@@ -420,8 +456,10 @@ Stated plainly, because the honesty *is* the contribution:
   definitive. Confidence on corroboration-free synthetic variants is structurally capped
   (no rsID/eQTL/GWAS/literature), so the "strong" calibration stratum understates the
   cell-type-matched case — the `high` regime is exercised separately by the corroboration-
-  ladder benchmark (11 real hematopoietic variants with full limbs; see *Calibration
-  benchmark*), not the MPRA strata.
+  ladder benchmark (11 real hematopoietic variants, 33 draws; `high` never sampled without
+  full corroboration; see *Calibration benchmark*), not the MPRA strata. That benchmark also
+  surfaces its own bound: only 1 of the 11 reaches full corroboration (LD-tag SNPs don't fire
+  the local functional limbs), so a populated `high` stratum needs fine-mapped causal variants.
 
 None of these are hidden in the claims above; each is called out where it applies.
 

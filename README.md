@@ -32,7 +32,7 @@ declines rather than manufacture a claim.
 | **Agent** | Known-mechanism recovery (n = 11) | trait **11/11**, gene 10/11, TF 8/11 |
 | **Agent** | Architecture ablation (single vs multi vs +red-team) | layers only ever **lower** overconfidence |
 | **Agent** | Confidence calibration (strong / weak / null) | `medium+` only in strong (**0 / 0 / 36 %**) |
-| **Agent** | Calibration benchmark — `high` regime (11 real corroborated variants) | confidence tracks *measured* evidence completeness; `high` only at full corroboration |
+| **Agent** | Calibration benchmark — `high` regime (11 real hematopoietic variants, 33 draws) | `high` **never sampled** without full corroboration (0/30 sub-full draws); calibrates to *retrieved* evidence, not priors |
 | **Discovery** | Unbiased GWAS screen (100 variants) | 0 forced hits; guardrail caught a *solved* lead |
 
 Full numbers, transcripts, and caveats: **[`RESULTS.md`](RESULTS.md)**. Every experiment is
