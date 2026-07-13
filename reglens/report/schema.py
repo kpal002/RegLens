@@ -91,6 +91,7 @@ class EvidenceBundle:
                 "disrupting_allele": self.motif.disrupting_allele,
                 "strand": t.strand, "ref_score": t.ref_score, "alt_score": t.alt_score,
                 "delta_score": t.delta_score,
+                "p_value": t.p_value,
                 "note": self.motif.reconciling_note(),
             }
         if self.regulatory is not None:

@@ -10,6 +10,11 @@ from reglens.genome import Variant
 from reglens.orchestrator import analyze_variant
 from reglens.report.render import render_text
 from reglens.tools.chrombpnet_score import ChromBPNetScorer, StubBackend
+from reglens.tools.motif_effect import SUBSET_MOTIF_DB, load_motifs
+
+# Orchestrator tests exercise routing/wiring, not motif accuracy — pin the small
+# 3-motif subset so they don't trigger (or pay for) the full-library null calibration.
+_SUBSET_MOTIFS = load_motifs(SUBSET_MOTIF_DB)
 
 # --- Canned API payloads ----------------------------------------------------
 _ENSEMBL_GENES = [
@@ -75,7 +80,8 @@ class TestAnalyzeVariant:
                           known_locus["ref"], known_locus["alt"])
         bundle = analyze_variant(
             variant, rsid="rsTEST", celltype="K562",
-            genome_path=test_genome, scorer=scorer, client=OrchestratorFake(), window_length=40,
+            genome_path=test_genome, scorer=scorer, client=OrchestratorFake(),
+            window_length=40, motifs=_SUBSET_MOTIFS,
         )
         assert bundle.chrombpnet is not None
         assert bundle.regulatory is not None and bundle.regulatory.nearest is not None
@@ -89,7 +95,7 @@ class TestAnalyzeVariant:
         variant = Variant(known_locus["chrom"], known_locus["pos"], "C", "T")
         client = OrchestratorFake()
         analyze_variant(variant, rsid="rsTEST", genome_path=test_genome, scorer=scorer,
-                        client=client, window_length=40)
+                        client=client, window_length=40, motifs=_SUBSET_MOTIFS)
         # The Europe PMC query should include the chained gene symbol and rsID.
         assert client.queries
         q = client.queries[0]["query"]
@@ -98,7 +104,8 @@ class TestAnalyzeVariant:
     def test_one_tool_failure_is_isolated(self, scorer, test_genome: Path, known_locus: dict):
         variant = Variant(known_locus["chrom"], known_locus["pos"], "C", "T")
         bundle = analyze_variant(variant, rsid="rsTEST", genome_path=test_genome, scorer=scorer,
-                                 client=OrchestratorFake(fail={"gene"}), window_length=40)
+                                 client=OrchestratorFake(fail={"gene"}),
+                                 window_length=40, motifs=_SUBSET_MOTIFS)
         # gene_target failed but the rest still populated.
         assert bundle.gene is None
         assert "gene" in bundle.errors
@@ -115,7 +122,7 @@ class TestAnalyzeVariant:
     def test_render_text_smoke(self, scorer, test_genome: Path, known_locus: dict):
         variant = Variant(known_locus["chrom"], known_locus["pos"], "C", "T")
         bundle = analyze_variant(variant, rsid="rsTEST", genome_path=test_genome, scorer=scorer,
-                                 client=OrchestratorFake(), window_length=40)
+                                 client=OrchestratorFake(), window_length=40, motifs=_SUBSET_MOTIFS)
         text = render_text(bundle)
         assert "RegLens evidence" in text
         assert "ChromBPNet accessibility" in text
@@ -124,6 +131,6 @@ class TestAnalyzeVariant:
         import json
         variant = Variant(known_locus["chrom"], known_locus["pos"], "C", "T")
         bundle = analyze_variant(variant, rsid="rsTEST", genome_path=test_genome, scorer=scorer,
-                                 client=OrchestratorFake(), window_length=40)
+                                 client=OrchestratorFake(), window_length=40, motifs=_SUBSET_MOTIFS)
         s = json.dumps(bundle.to_dict())  # must not raise
         assert "chrombpnet" in s and "trait" in s

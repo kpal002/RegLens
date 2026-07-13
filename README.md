@@ -2,23 +2,23 @@
 
 **An agentic mechanistic interpreter for noncoding regulatory variants.**
 
-Annotation tools (VEP/ANNOVAR) tell you *where* a noncoding variant is — "intergenic,
-modifier." Sequence models (ChromBPNet/Enformer) score *that* it has an effect but don't
-explain it. **RegLens is the bridge:** give it a noncoding variant + a cell-type context,
-and a deep-learning chromatin model plus a multi-agent reasoning layer produce a
-**cited, cell-type-specific, mechanistic interpretation** — which TF motif is disrupted, in
-which regulatory element, plausibly affecting which gene, linked to which trait, and why —
-with a calibrated confidence and explicit caveats.
+Annotation tools (VEP/ANNOVAR) tell you *where* a noncoding variant sits — "intergenic,
+modifier." Sequence models (ChromBPNet/Enformer) score *that* it has an effect but don't say
+what the effect *is*. **RegLens is the bridge.** Give it a noncoding variant and a cell-type
+context, and a deep-learning chromatin model plus a multi-agent reasoning layer return a
+**cited, cell-type-specific mechanism** — which TF motif is disrupted, in which regulatory
+element, plausibly affecting which gene, linked to which trait — each with a calibrated
+confidence and explicit caveats.
 
-> We *explain what the sequence models see* — we do **not** claim to out-predict them.
-> Every number is computed by a deterministic tool; the agents reason over those numbers but
-> never invent a score. Every interpretation is a hypothesis with confidence + caveats.
+> We *explain what the sequence models see*; we don't claim to out-predict them. Every number
+> is computed by a deterministic tool — the agents reason over those numbers and never invent
+> one. Every output is a hypothesis, not a verdict.
 
-The distinctive thing here isn't the pieces — it's that the reasoning layer is **validated
-as ruthlessly as the model**: we measured whether the agent confabulates, whether it
-recovers known mechanisms, what the multi-agent architecture actually buys, and whether its
-confidence tracks the evidence. It does. And when asked to propose something *new*, it
-refuses to manufacture a claim.
+What sets RegLens apart isn't the components — it's that the **reasoning layer is validated
+as ruthlessly as the model**. We measured whether the agent confabulates, whether it recovers
+known mechanisms, what the multi-agent architecture actually buys, and whether its confidence
+tracks the evidence. Across our tests it does — and asked to propose something *novel*, it
+declines rather than manufacture a claim.
 
 ---
 

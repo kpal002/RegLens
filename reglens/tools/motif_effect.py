@@ -23,25 +23,61 @@ import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
+
+import numpy as np
 
 from reglens.genome import SequenceWindow, Variant
 
-# Bundled JASPAR subset shipped with the package (see reglens/data/motifs/).
-DEFAULT_MOTIF_DB = Path(__file__).parent.parent / "data" / "motifs" / "jaspar_core_subset.jaspar"
+_MOTIF_DIR = Path(__file__).parent.parent / "data" / "motifs"
 
-# Uniform background nucleotide frequencies for the log-odds conversion.
+# Default motif library: the full JASPAR CORE 2024 vertebrates *non-redundant* PFM
+# set (~880 motifs). "Non-redundant" collapses near-duplicate profiles for the same
+# TF, but a TF with genuinely distinct binding modes still contributes several
+# matrices (e.g. CTCF: MA0139.2 / MA1929.2 / MA1930.2) — so this is not one-per-TF,
+# and the per-motif FDR gate below is what keeps the top pick honest, not the dedup.
+DEFAULT_MOTIF_DB = _MOTIF_DIR / "jaspar_core_vertebrates.jaspar"
+
+# A tiny hand-curated 3-motif subset (GATA1, CTCF, GATA1::TAL1), kept for fast,
+# version-pinned unit tests. Real analysis uses DEFAULT_MOTIF_DB.
+SUBSET_MOTIF_DB = _MOTIF_DIR / "jaspar_core_subset.jaspar"
+
+# Uniform background — kept for reference / tests that assume it.
 _UNIFORM_BG = {"A": 0.25, "C": 0.25, "G": 0.25, "T": 0.25}
+# Human genomic background (hg38 autosomal): AT-rich (~0.29 A/T, ~0.21 C/G). JASPAR's
+# own scoring uses a genomic background; uniform inflates GC-rich motif scores relative
+# to AT-rich ones, which biases *which* motif wins once the library is large. This is
+# the default background for the log-odds conversion.
+_GENOMIC_BG = {"A": 0.295, "C": 0.205, "G": 0.205, "T": 0.295}
 _BASES = ("A", "C", "G", "T")
 _COMPLEMENT = {"A": "T", "T": "A", "G": "C", "C": "G", "N": "N"}
 
 # How far either side of the variant to scan for overlapping motif hits (bp). Must
-# be >= the widest motif so any motif overlapping the variant fits in the window.
-DEFAULT_FLANK = 30
+# be >= the widest motif so any motif overlapping the variant fits in the window. The
+# full JASPAR set has matrices up to 33 bp (some CTCF variants), so 40 gives headroom.
+DEFAULT_FLANK = 40
 
 # Effect-call thresholds on the ref→alt score change (bits).
 DISRUPT_THRESHOLD = 1.0  # alt weaker than ref by >= 1 bit → "disrupted"
-# Below this best-binding score (bits) a hit is too weak to call a motif at all.
+# Below this best-binding score (bits) a hit is too weak to keep as a *candidate* — a
+# cheap prefilter before the statistical gate, not the significance call itself.
 MIN_BINDING_BITS = 3.0
+
+# Family-wise false-positive rate for the significance gate. With ~880 short PWMs
+# scanned per variant, |Δ| is the WRONG discriminator: a short weak motif swings
+# wildly on one base, so random sequence produces large |Δ| (median top ≈ 15 bits)
+# off sites that never bound. What actually separates a real motif occurrence from
+# noise is BINDING STRENGTH — a genuine site binds far harder than chance (a real
+# CTCF site ≈ 26 bits vs. a family-wise binding-noise p95 ≈ 15 bits). So the gate is:
+# (1) the variant sits in a site whose best-binding score beats the empirical
+# family-wise binding null at level ``alpha``, AND (2) the variant actually changes it
+# (|Δ| ≥ DISRUPT_THRESHOLD). The null is calibrated once per library on random
+# background windows, which holds the false-positive rate at ~``alpha`` for any
+# library size.
+DEFAULT_ALPHA = 0.05
+# Number of random background windows used to calibrate the empirical binding null.
+# More = a tighter quantile; 500 puts the 95th percentile on ~25 tail samples.
+_NULL_PANEL_SIZE = 500
 
 
 def reverse_complement(seq: str) -> str:
@@ -131,7 +167,7 @@ def load_motifs(
     Raises:
         ValueError: If the file is malformed.
     """
-    background = background or _UNIFORM_BG
+    background = background or _GENOMIC_BG
     motifs: list[Motif] = []
     motif_id = tf_name = None
     counts: dict[str, list[float]] = {}
@@ -177,6 +213,9 @@ class MotifHit:
         alt_score: PWM score (bits) of the alternate allele at this site.
         delta_score: ``alt_score - ref_score`` (negative = weakened by alt).
         effect: ``"disrupted"``, ``"created"`` or ``"unchanged"``.
+        p_value: Right-tail p-value of the best-binding allele under the PWM null
+            (probability a random background site binds this well). ``None`` until
+            computed. Lower = a more credible genuine motif match.
     """
 
     motif_id: str
@@ -187,6 +226,7 @@ class MotifHit:
     alt_score: float
     delta_score: float
     effect: str
+    p_value: float | None = None
 
     @property
     def best_binding(self) -> float:
@@ -258,6 +298,142 @@ def _classify(delta: float) -> str:
     return "unchanged"
 
 
+# Empirical |Δ| null threshold, cached per (library identity, flank, background, alpha)
+# so the calibration panel runs once per process, not once per variant scanned.
+_DELTA_NULL_CACHE: dict[Any, tuple[float, np.ndarray]] = {}
+
+
+def _library_key(motifs: list[Motif]) -> Any:
+    """A cheap, stable identity for a motif library (for the null-threshold cache)."""
+    return (len(motifs),
+            tuple(m.motif_id for m in motifs[:8]),
+            tuple(m.motif_id for m in motifs[-8:]))
+
+
+def _random_top_binding(
+    motifs: list[Motif], flank: int,
+    background: dict[str, float], rng: np.random.Generator,
+) -> float:
+    """Top best-binding score a random background variant produces across the library.
+
+    Draws a ``2*flank+1`` bp window iid from ``background``, mutates the centre base,
+    scans every motif, and returns the largest ``best_binding`` seen at a site that
+    actually changes (|Δ| ≥ DISRUPT_THRESHOLD) — one draw from the family-wise binding
+    null the gate calibrates against. Restricting to changed sites makes the null the
+    right comparison for the variant hits the gate is applied to.
+    """
+    n = 2 * flank + 1
+    bases = np.array(_BASES)
+    p = np.array([background[b] for b in _BASES], dtype=np.float64)
+    p /= p.sum()
+    seq = "".join(rng.choice(bases, size=n, p=p))
+    vp = n // 2
+    alt = rng.choice([b for b in _BASES if b != seq[vp]])
+    ref_local, alt_local = seq, seq[:vp] + alt + seq[vp + 1:]
+    best = 0.0
+    for motif in motifs:
+        hit = _scan_motif(motif, ref_local, alt_local, vp)
+        if hit is not None and abs(hit.delta_score) >= DISRUPT_THRESHOLD:
+            best = max(best, hit.best_binding)
+    return best
+
+
+# Precomputed default-config null shipped with the package (see the generator note in
+# reglens/data/motifs/). Loading it lets a single-variant run skip ~40s of simulation.
+_BUNDLED_NULL_PATH = _MOTIF_DIR / "binding_null.default.json"
+
+
+def _load_bundled_null(
+    library_key: Any, flank: int, alpha: float,
+    background: dict[str, float], panel_size: int, seed: int,
+) -> tuple[float, np.ndarray] | None:
+    """Return the bundled null threshold+sample iff this call matches its config.
+
+    The shipped null is valid only for the exact configuration it was computed under:
+    the library identity (size + head/tail motif-id fingerprint), flank, alpha,
+    background, panel size, and seed. Any deviation — including a different library
+    that merely happens to have the same size — falls through to live calibration, so
+    a custom setup is never silently mis-thresholded.
+    """
+    if not _BUNDLED_NULL_PATH.exists():
+        return None
+    try:
+        import json
+        with open(_BUNDLED_NULL_PATH) as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    n_motifs, head, tail = library_key
+    bg_match = all(
+        abs(data["background"].get(b, -1) - background[b]) < 1e-6 for b in _BASES
+    )
+    lib_match = (data["n_motifs"] == n_motifs
+                 and tuple(data.get("lib_head", ())) == head
+                 and tuple(data.get("lib_tail", ())) == tail)
+    if not (lib_match and data["flank"] == flank and abs(data["alpha"] - alpha) < 1e-12
+            and data["panel_size"] == panel_size and data["seed"] == seed and bg_match):
+        return None
+    return float(data["threshold"]), np.array(data["null_sorted"], dtype=np.float64)
+
+
+def calibrate_binding_null(
+    motifs: list[Motif],
+    flank: int = DEFAULT_FLANK,
+    alpha: float = DEFAULT_ALPHA,
+    background: dict[str, float] | None = None,
+    panel_size: int = _NULL_PANEL_SIZE,
+    seed: int = 0,
+) -> tuple[float, np.ndarray]:
+    """The library's family-wise binding-strength threshold at level ``alpha``.
+
+    Simulates ``panel_size`` random background variants (:func:`_random_top_binding`),
+    collects the per-variant top best-binding score across the whole library at a
+    changed site, and returns the ``(1 − alpha)`` quantile — the binding score a real
+    variant's site must beat to be credible. By construction a random variant clears
+    it only ``alpha`` of the time, so the false-positive rate is controlled at
+    ``alpha`` regardless of library size. Cached per library/flank/background/alpha.
+
+    Args:
+        motifs: The motif library being scanned.
+        flank: Half-width (bp) of the scan window (must match :func:`motif_effect`).
+        alpha: Target family-wise false-positive rate.
+        background: Background base frequencies (defaults to genomic).
+        panel_size: Number of random background variants to simulate.
+        seed: RNG seed (kept fixed so the threshold is reproducible).
+
+    Returns:
+        ``(threshold, null)``: the best-binding (bits) threshold, and the sorted array
+        of per-variant top binding scores from the null panel (for empirical
+        exceedance).
+    """
+    background = background or _GENOMIC_BG
+    key = (_library_key(motifs), flank, alpha,
+           tuple(round(background[b], 4) for b in _BASES), panel_size, seed)
+    cached = _DELTA_NULL_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    # Fast path: the default library+config is a fixed deterministic threshold, so a
+    # single-variant run shouldn't pay ~40s of simulation. Load the value bundled with
+    # the package if this call matches the defaults exactly.
+    bundled = _load_bundled_null(
+        _library_key(motifs), flank, alpha, background, panel_size, seed
+    )
+    if bundled is not None:
+        _DELTA_NULL_CACHE[key] = bundled
+        return bundled
+
+    rng = np.random.default_rng(seed)
+    null = np.sort(np.array([
+        _random_top_binding(motifs, flank, background, rng)
+        for _ in range(panel_size)
+    ]))
+    threshold = float(np.quantile(null, 1.0 - alpha))
+    result = (threshold, null)
+    _DELTA_NULL_CACHE[key] = result
+    return result
+
+
 def _scan_motif(
     motif: Motif, ref_local: str, alt_local: str, var_pos: int
 ) -> MotifHit | None:
@@ -311,23 +487,50 @@ def motif_effect(
     motifs: list[Motif] | None = None,
     flank: int = DEFAULT_FLANK,
     min_binding_bits: float = MIN_BINDING_BITS,
+    alpha: float = DEFAULT_ALPHA,
+    background: dict[str, float] | None = None,
+    null_panel_size: int = _NULL_PANEL_SIZE,
 ) -> MotifEffectResult:
     """Identify the TF motif most disrupted or created by a variant.
+
+    Two-stage credibility filter so scanning a large motif library (~880 JASPAR
+    matrices) can't manufacture a mechanism on random sequence:
+
+    1. **Binding prefilter** — keep only sites whose stronger allele clears
+       ``min_binding_bits`` (a cheap magnitude gate that discards obvious noise).
+    2. **Empirical family-wise gate** — a short PWM swings wildly on one base, so |Δ|
+       alone is large even on noise; what separates a real occurrence from chance is
+       BINDING STRENGTH. The library's family-wise binding null is calibrated once on
+       random background windows (:func:`calibrate_binding_null`), and a hit is kept
+       only if (a) its best-binding score beats the ``(1 − alpha)`` quantile of that
+       null AND (b) the variant actually changes it (|Δ| ≥ ``DISRUPT_THRESHOLD``).
+       This holds the false-positive rate near ``alpha`` whether the library has 3
+       motifs or 880 — what makes the large library *honest*.
 
     Args:
         window: The ref/alt :class:`SequenceWindow` around the variant.
         variant: The variant being analyzed (for reporting).
-        motifs: Motif library; defaults to the bundled JASPAR subset.
+        motifs: Motif library; defaults to the full JASPAR CORE vertebrate set.
         flank: Half-width (bp) of the local region scanned around the variant.
-        min_binding_bits: Minimum best-binding score for a hit to be credible.
+        min_binding_bits: Minimum best-binding score for the prefilter.
+        alpha: Family-wise false-positive rate for the empirical |Δ| gate. Set to
+            ``1.0`` to disable the gate (prefilter only — the old behavior, safe only
+            for a tiny curated library).
+        background: Background base frequencies for the null (defaults to genomic).
+        null_panel_size: Random background windows used to calibrate the gate (cached
+            per library, so the cost is paid once). Smaller = faster but a noisier
+            threshold; the default is tuned for accuracy, tests override it for speed.
 
     Returns:
-        A :class:`MotifEffectResult`. ``top`` is the credible hit with the largest
-        ``|delta_score|`` (ties broken by binding strength), or ``None`` if no
-        motif binds above ``min_binding_bits``.
+        A :class:`MotifEffectResult`. ``top`` is the most-disrupted hit that clears
+        the empirical |Δ| threshold, or ``None`` if none survives. Each hit's
+        ``p_value`` is its empirical exceedance — the fraction of random background
+        variants whose top |Δ| reaches that hit's |Δ| — so a reader sees how unusual
+        the call is, not just that it passed.
     """
     if motifs is None:
         motifs = load_motifs()
+    background = background or _GENOMIC_BG
 
     # Carve out a local window centered on the variant so we only score motifs that
     # actually overlap it (and keep the scan cheap).
@@ -337,11 +540,29 @@ def motif_effect(
     alt_local = window.alt_seq[lo:hi]
     var_pos = window.variant_offset - lo
 
+    # Stage 1: scan + binding prefilter + require the variant to actually change the
+    # site (|Δ| ≥ DISRUPT_THRESHOLD). An unchanged site is not a mechanism.
     hits: list[MotifHit] = []
     for motif in motifs:
         hit = _scan_motif(motif, ref_local, alt_local, var_pos)
-        if hit is not None and hit.best_binding >= min_binding_bits:
+        if (hit is not None and hit.best_binding >= min_binding_bits
+                and abs(hit.delta_score) >= DISRUPT_THRESHOLD):
             hits.append(hit)
+
+    # Stage 2: empirical family-wise BINDING gate. Threshold calibrated (and cached)
+    # once per library on random background windows; keep only hits whose site binds
+    # more strongly than chance ever produces across the library.
+    if hits and alpha < 1.0:
+        threshold, null = calibrate_binding_null(
+            motifs, flank=flank, alpha=alpha, background=background,
+            panel_size=null_panel_size,
+        )
+        hits = [h for h in hits if h.best_binding >= threshold]
+        # Empirical exceedance: fraction of null variants whose top binding reaches this.
+        n = len(null)
+        for h in hits:
+            beaten = int(np.searchsorted(null, h.best_binding, side="left"))
+            h.p_value = (n - beaten) / n
 
     # Rank by how much the variant changes the site, then by absolute binding.
     hits.sort(key=lambda h: (abs(h.delta_score), h.best_binding), reverse=True)

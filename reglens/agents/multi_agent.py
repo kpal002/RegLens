@@ -56,7 +56,10 @@ SPECIALISTS: tuple[Specialist, ...] = (
         "You are RegLens's REGULATORY-EFFECT specialist. From the evidence bundle, assess "
         "whether and how the variant changes chromatin accessibility and which TF motif is "
         "disrupted or created (ChromBPNet Δ log-counts + profile JSD, the JASPAR motif effect, "
-        "and the ENCODE cCRE context). " + _RULES,
+        "and the ENCODE cCRE context). The motif's 'p_value' is its empirical exceedance against "
+        "a family-wise binding null (lower = a more credible site; a present motif already passed "
+        "the significance gate). Weight the TF call by it, and if no motif object is present treat "
+        "it as no credible TF disruption rather than a gap to fill. " + _RULES,
     ),
     Specialist(
         "celltype-context", "cell-type relevance",
@@ -100,7 +103,9 @@ REDTEAM_SYSTEM = (
     "Challenge the emerging mechanistic story hard: is the ChromBPNet effect a model artifact "
     "(small magnitude, single fold)? Is the GWAS signal an LD hitchhiker rather than causal? Is "
     "there a cell-type mismatch? Does the eQTL evidence actually implicate the proposed gene, "
-    "or is it absent / in an irrelevant tissue? Only raise concerns grounded in the bundle."
+    "or is it absent / in an irrelevant tissue? Is the named TF resting on a marginal motif "
+    "'p_value' (empirical binding-null exceedance) that doesn't justify a confident mechanism? "
+    "Only raise concerns grounded in the bundle."
 )
 _REDTEAM_SCHEMA: dict[str, Any] = {
     "type": "object",

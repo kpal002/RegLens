@@ -5,7 +5,9 @@ from __future__ import annotations
 from reglens.genome import SequenceWindow, Variant
 from reglens.tools.motif_effect import (
     DEFAULT_MOTIF_DB,
+    SUBSET_MOTIF_DB,
     Motif,
+    calibrate_binding_null,
     load_motifs,
     motif_effect,
     reverse_complement,
@@ -37,12 +39,12 @@ class TestReverseComplement:
 
 class TestLoadMotifs:
     def test_parses_bundled_db(self):
-        motifs = load_motifs()
+        motifs = load_motifs(SUBSET_MOTIF_DB)
         names = {m.tf_name for m in motifs}
         assert {"GATA1", "CTCF", "GATA1::TAL1"} <= names
 
     def test_widths(self):
-        by = {m.tf_name: m.width for m in load_motifs()}
+        by = {m.tf_name: m.width for m in load_motifs(SUBSET_MOTIF_DB)}
         assert by["GATA1"] == 11
         assert by["CTCF"] == 19
         assert by["GATA1::TAL1"] == 18
@@ -51,7 +53,7 @@ class TestLoadMotifs:
         assert DEFAULT_MOTIF_DB.exists()
 
     def test_consensus_scores_above_random(self):
-        ctcf = _by_name(load_motifs(), "CTCF")
+        ctcf = _by_name(load_motifs(SUBSET_MOTIF_DB), "CTCF")
         cons = _consensus(ctcf)
         assert ctcf.score(cons) > ctcf.score("A" * ctcf.width)
 
@@ -81,7 +83,7 @@ def _window_with_motif(
 
 class TestMotifEffect:
     def test_finds_and_disrupts_embedded_ctcf(self):
-        motifs = load_motifs()
+        motifs = load_motifs(SUBSET_MOTIF_DB)
         ctcf = _by_name(motifs, "CTCF")
         # Mutate a high-information central position to its worst base.
         pos = ctcf.width // 2
@@ -98,7 +100,7 @@ class TestMotifEffect:
     def test_created_when_alt_builds_site(self):
         # Reverse the disruption: start from a disrupted motif as "ref", and let the
         # alt restore the consensus base -> the alt *creates* the site.
-        motifs = load_motifs()
+        motifs = load_motifs(SUBSET_MOTIF_DB)
         ctcf = _by_name(motifs, "CTCF")
         pos = ctcf.width // 2
         cons = _consensus(ctcf)
@@ -121,7 +123,7 @@ class TestMotifEffect:
         assert result.top.delta_score > 0
 
     def test_no_hit_in_random_sequence(self):
-        motifs = load_motifs()
+        motifs = load_motifs(SUBSET_MOTIF_DB)
         seq = "GTACGTAC" * 10  # 80 bp, no strong motif site
         var_offset = 40
         alt = "A" if seq[var_offset] != "A" else "C"
@@ -138,7 +140,7 @@ class TestMotifEffect:
     def test_reconciles_created_to_ref_disrupts(self):
         # When the alt allele CREATES a site, the ref allele is the disrupting one —
         # this is what reconciles our "created" call with literature "disruption".
-        motifs = load_motifs()
+        motifs = load_motifs(SUBSET_MOTIF_DB)
         ctcf = _by_name(motifs, "CTCF")
         pos = ctcf.width // 2
         cons = _consensus(ctcf)
@@ -157,7 +159,7 @@ class TestMotifEffect:
         assert "the " + bad + " allele is the one that breaks the site" in result.summary()
 
     def test_disrupting_allele_none_when_unchanged(self):
-        motifs = load_motifs()
+        motifs = load_motifs(SUBSET_MOTIF_DB)
         seq = "GTACGTAC" * 10
         window = SequenceWindow("chr_test", 0, len(seq), 40, seq, seq[:40] + "A" + seq[41:])
         result = motif_effect(window, Variant("chr_test", 40, seq[40], "A"),
@@ -166,7 +168,7 @@ class TestMotifEffect:
         assert result.reconciling_note() is None
 
     def test_hits_ranked_by_disruption(self):
-        motifs = load_motifs()
+        motifs = load_motifs(SUBSET_MOTIF_DB)
         ctcf = _by_name(motifs, "CTCF")
         pos = ctcf.width // 2
         alt = _worst_base(ctcf, pos)
@@ -175,3 +177,83 @@ class TestMotifEffect:
         result = motif_effect(window, Variant("chr_test", 100, "N", alt), motifs=motifs)
         deltas = [abs(h.delta_score) for h in result.hits]
         assert deltas == sorted(deltas, reverse=True)
+
+
+class TestLargeLibraryFalsePositiveGate:
+    """The empirical family-wise gate is what makes the full ~880-motif JASPAR library
+    safe: without it, scanning that many short PWMs manufactures a 'mechanism' on
+    random sequence. These tests lock in both halves — it stays quiet on noise, and it
+    still recovers a real embedded site.
+    """
+
+    @staticmethod
+    def _random_window(rng, n=81):
+        import numpy as np
+
+        bg = np.array([0.295, 0.205, 0.205, 0.295])
+        bg /= bg.sum()
+        bases = np.array(list("ACGT"))
+        seq = "".join(rng.choice(bases, size=n, p=bg))
+        vp = n // 2
+        alt = rng.choice([b for b in "ACGT" if b != seq[vp]])
+        window = SequenceWindow("chr_test", 0, n, vp, seq, seq[:vp] + alt + seq[vp + 1 :])
+        return window, Variant("chr_test", vp + 1, seq[vp], alt)
+
+    def test_full_library_stays_quiet_on_random_sequence(self):
+        """On random genomic-background sequence the full library must almost always
+        return no motif call — the confabulation guard. (Without the gate this is
+        100% false positives; the NFIX/HOXA2 spurious hit is the failure mode.)"""
+        import numpy as np
+
+        full = load_motifs(DEFAULT_MOTIF_DB)
+        rng = np.random.default_rng(7)
+        n_trials = 60
+        called = 0
+        for _ in range(n_trials):
+            window, variant = self._random_window(rng)
+            if motif_effect(window, variant, motifs=full, null_panel_size=120).top is not None:
+                called += 1
+        # alpha=0.05 gate; allow generous slack for a small sample.
+        assert called <= 0.20 * n_trials, f"{called}/{n_trials} false positives — gate too loose"
+
+    def test_full_library_recovers_embedded_real_site(self):
+        """A real CTCF consensus embedded in flanks must survive the gate against the
+        full library — the gate must not be so strict it kills true positives."""
+        full = load_motifs(DEFAULT_MOTIF_DB)
+        ctcf = _by_name(load_motifs(SUBSET_MOTIF_DB), "CTCF")
+        cons = _consensus(ctcf)
+        pos = ctcf.width // 2
+        worst = _worst_base(ctcf, pos)
+        flank = "ACGTGACTGACTGATCAGTCAGTC" * 4
+        seq = flank + cons + flank
+        if len(seq) % 2 == 0:
+            seq = seq[:-1]
+        voff = len(flank) + pos
+        window = SequenceWindow("chr_test", 0, len(seq), voff, seq,
+                                seq[:voff] + worst + seq[voff + 1 :])
+        result = motif_effect(window, Variant("chr_test", voff + 1, cons[pos], worst),
+                              motifs=full, null_panel_size=120)
+        assert result.top is not None, "real CTCF site was gated out (false negative)"
+        assert any(h.tf_name == "CTCF" for h in result.hits)
+
+    def test_gate_can_be_disabled(self):
+        """alpha=1.0 disables the statistical gate (prefilter-only, old behavior)."""
+        full = load_motifs(DEFAULT_MOTIF_DB)
+        import numpy as np
+
+        rng = np.random.default_rng(1)
+        window, variant = self._random_window(rng)
+        ungated = motif_effect(window, variant, motifs=full, alpha=1.0)
+        gated = motif_effect(window, variant, motifs=full, alpha=0.05, null_panel_size=120)
+        # Disabling the gate can only keep >= as many hits.
+        assert len(ungated.hits) >= len(gated.hits)
+
+
+class TestBindingNullCalibration:
+    def test_threshold_is_positive_and_cached(self):
+        full = load_motifs(DEFAULT_MOTIF_DB)
+        thr1, null1 = calibrate_binding_null(full, panel_size=80, seed=0)
+        thr2, null2 = calibrate_binding_null(full, panel_size=80, seed=0)
+        assert thr1 > 0
+        assert thr1 == thr2  # cached, deterministic
+        assert len(null1) == 80
