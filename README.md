@@ -124,8 +124,10 @@ reglens analyze 'chr2:60490908:T>G' --rsid rs1427407 --celltype K562 \
 reglens validate data/benchmarks/kircher_mpra_grch38.cadd.tsv --genome hg38.fa --model <fold_dir>
 ```
 
-Colab notebooks (`reglens/model/`, `reglens/validation/`) run the pretrained-model
-verification, the training/extensibility demo, and the full validation on a GPU.
+Task-based Colab notebooks in [`notebooks/`](notebooks/) reproduce every experiment on a
+GPU — engine AUROC (01), the crossover (02), the agent controls (03), agent reasoning (04),
+and the discovery screen (05); see [`notebooks/README.md`](notebooks/README.md).
+`reglens/model/` holds the pretrained-model verification and the training/extensibility demo.
 
 ## MCP server
 
@@ -178,18 +180,19 @@ Use the absolute path to the `reglens-mcp` entry point from your environment (e.
 reglens/
   tools/        chrombpnet_score · motif_effect · regulatory_context · gene_target · trait_link · literature
   agents/       interpreter (single) · multi_agent (specialists → red-team → adjudicator)
-  validation/   metrics · harness · dataset · build_mpra_benchmark · cadd · lineage · run_validation.ipynb
+  validation/   metrics · harness · dataset · build_mpra_benchmark · cadd · lineage · null_control · agent_eval · discovery
+notebooks/      01_engine_validation · 02_crossover · 03_agent_null_control · 04_agent_reasoning · 05_discovery_screen
   report/       schema · render · plot
   orchestrator.py · cli.py · genome.py · mcp_server.py (MCP stdio server)
   model/        ChromBPNet wrappers + notebooks
 data/benchmarks/  Kircher MPRA benchmark (+ CADD)   figures/  validation money-shots
-tests/  (164, all offline)   RESULTS.md  RegLens_spec.md
+tests/  (204, all offline)   RESULTS.md  RegLens_spec.md
 ```
 
 ## Test
 
 ```bash
-pytest        # 164 tests, fully offline (no network, no GPU, no API key)
+pytest        # 204 tests, fully offline (no network, no GPU, no API key)
 ruff check reglens tests
 ```
 

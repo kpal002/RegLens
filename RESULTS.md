@@ -330,7 +330,7 @@ python -m reglens.validation.build_mpra_benchmark -o data/benchmarks/kircher_mpr
 # CADD baseline — annotate the cadd column from CADD's pre-scored whole-genome file:
 python -m reglens.validation.cadd remote data/benchmarks/kircher_mpra_grch38.tsv \
        -o data/benchmarks/kircher_mpra_grch38.cadd.tsv
-# run model scoring on a GPU box (hg38 + ENCODE model): reglens/validation/run_validation.ipynb
+# run model scoring on a GPU box (hg38 + ENCODE model): notebooks/01_engine_validation.ipynb
 # crossover figures + bootstrap CIs:
 python figures/generate_crossover.py
 ```

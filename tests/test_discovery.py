@@ -69,9 +69,9 @@ class TestRunAndRank:
         ]
         # Δ and motif-effect share sign → concordant (disruption + accessibility loss).
         bundles = {
-            "rsA": _bundle(-0.9, -6.0, "GATA1", ["monocyte count"], lit=30, rsid="rsA"),  # dense lit
-            "rsB": _bundle(-0.5, -6.0, "TAL1", ["platelet count"], lit=0, rsid="rsB"),    # quadrant
-            "rsC": _bundle(-0.8, -6.0, "GATA1", ["red blood cell"], lit=1, rsid="rsC"),   # quadrant, bigger Δ
+            "rsA": _bundle(-0.9, -6.0, "GATA1", ["monocyte count"], lit=30, rsid="rsA"),  # dense
+            "rsB": _bundle(-0.5, -6.0, "TAL1", ["platelet count"], lit=0, rsid="rsB"),  # quadrant
+            "rsC": _bundle(-0.8, -6.0, "GATA1", ["red blood cell"], lit=1, rsid="rsC"),  # +bigger Δ
         }
         monkeypatch.setattr(dsc, "resolve_variant",
                             lambda rsid, *a, **k: Variant("chr6", 1, "A", "G"))
