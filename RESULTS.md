@@ -235,28 +235,27 @@ deterministic evidence is absent — the honest form of "knows what it doesn't k
 
 **Architecture ablation.** `run_ablation` runs **single-agent vs multi-agent−redteam vs
 full multi-agent** over the *same* evidence bundle (4 strong known mechanisms + 4 null MPRA
-negatives). Result — **no configuration ever *raised* confidence; the architecture
-de-escalated exactly the over-read cases and preserved the one fully-concordant call:**
+negatives). The reproducible result — holding across both the 3-motif and full-library runs
+— is **the direction: no configuration ever *raised* confidence; the layers only
+de-escalate, and selectively** (full-library run):
 
 | variant | stratum | single | noRT | full | net |
 |---|---|---|---|---|---|
-| rs2814778 | strong | high | high | **high** | preserved ✓ |
-| rs1427407 | strong | high | high | **medium** | red-team lowered |
-| rs12740374 | strong | high | medium | **medium** | multi-agent lowered |
-| HGB1 | null | medium | low | **low** | multi-agent lowered |
-| rs6983267, 3 nulls | — | low | low | low | (already at floor) |
+| rs1427407 | strong | high | medium | **medium** | multi-agent lowered |
+| rs2814778 | strong | high | high | **medium** | red-team lowered |
+| rs12740374 | strong | medium | medium | **medium** | held |
+| rs6983267 + 4 nulls | — | low | low | low | (at floor) |
 
-Net single→full: **strong 2↓, null 1↓, 0 raised.** Two layers, two distinct jobs: the
-**multi-agent structure** caught single-agent overconfidence — a *null* it over-read
-(HGB1 medium→low) and a strong-but-weak-signal case (rs12740374 high→medium); the
-**red-team's** distinctive contribution was tempering rs1427407 — a real BCL11A variant but
-with only a modest ChromBPNet Δ — from high→medium, i.e. the "is this a model artifact?"
-check firing on a case the priors would wave through. And it **kept rs2814778 high** (the
-fully-concordant Duffy variant) — so the architecture calibrates, it doesn't blanket-hedge.
-That is the Claude-use payoff, shown rather than asserted. _(Honest: n=8; the nulls mostly
-sat at the low floor — the single agent already got 3/4 right — so the red-team's
-null-lowering has little room to show here; the one overconfident null was caught at the
-multi-agent stage before the red-team.)_
+Net single→full: **strong 2↓, null 0↓, 0 raised.** The multi-agent structure tempers
+rs1427407 (high→medium), the **red-team's** distinctive contribution is tempering rs2814778
+(high→medium — the "is this really certain?" check firing even on the Duffy variant), and it
+**holds** rs12740374 at medium and rs6983267 at low — de-escalation is *selective* (2 of 4
+strong), not blanket-hedging. The nulls were already at the `low` floor (single-agent got all
+4 right this run), so there was nothing to catch there. _(Honest: n=8 with run-to-run LLM
+sampling — the robust claim is the **direction** (0 raised across both runs), not the exact
+per-variant landing; in the prior 3-motif run the multi-agent stage also caught an
+overconfident null, and rs2814778 landed high. The Claude-use payoff — the architecture only
+ever tightens calibration — is shown, not asserted.)_
 
 **Confidence calibration.** `calibration_table` tabulates confidence across the three
 strata (assembled from the runs above — reproducible from the interpretation lists):

@@ -120,9 +120,9 @@ measured it — four experiments, all in [`RESULTS.md`](RESULTS.md), reproducibl
   are *honest* — it refused to name a TF the motif tool didn't surface even when it clearly
   knew the textbook answer (e.g. LCT/Oct-1), rather than confabulate from memory.
 - **The architecture earns its keep.** Single-agent vs multi-agent−redteam vs full, over the
-  *same* bundle: the layers **only ever lower** overconfidence, never raise it — the
-  red-team tempers a real-but-weak-signal call, the multi-agent structure catches a null the
-  single agent over-read, and both preserve confidence where the evidence is fully concordant.
+  *same* bundle: the layers **only ever lower** overconfidence, never raise it (0 raised
+  across two runs) — the red-team and the multi-agent structure each temper an over-read
+  strong call, *selectively* (2 of 4 lowered, the rest held) rather than blanket-hedging.
 - **It knows what it doesn't know.** Confidence (high/med/low) across strata: `medium+`
   appears in **0%** of null and **0%** of weak-effect cases, **45%** of strong known
   mechanisms — and the lone `high` is reserved for the one variant where every channel,
