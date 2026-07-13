@@ -38,9 +38,10 @@ def _text_response(payload: str = '{"ok": 1}'):
 class _CapturingClient:
     """Fake Anthropic client that records every ``messages.create`` kwargs dict."""
 
-    def __init__(self, fail_first: bool = False):
+    def __init__(self, fail_first: bool = False, grammar_fail: int = 0):
         self.calls: list[dict] = []
         self._fail_first = fail_first
+        self._grammar_fail = grammar_fail  # first N structured calls raise a grammar 400
 
     @property
     def messages(self):
@@ -51,6 +52,13 @@ class _CapturingClient:
         if self._fail_first and len(self.calls) == 1:
             # Simulate an SDK/model that rejects the structured-output param.
             raise TypeError("unexpected keyword argument 'output_config'")
+        if (self._grammar_fail and "output_config" in kwargs
+                and len(self.calls) <= self._grammar_fail):
+            # Transient server-side grammar compilation timeout (a 400).
+            raise RuntimeError(
+                "Error code: 400 - {'type': 'error', 'error': "
+                "{'message': 'Grammar compilation timed out.'}}"
+            )
         return _text_response()
 
 
@@ -97,6 +105,31 @@ class TestRequestShape:
             "SYS", "USER", _SCHEMA, "\nSUFFIX"
         )
         assert client.calls[0]["model"] == "claude-sonnet-5"
+
+    def test_grammar_timeout_retries_structured(self):
+        # One transient grammar 400, then success — retried in place, stays structured.
+        client = _CapturingClient(grammar_fail=1)
+        caller = StructuredCaller(client=client, grammar_backoff=0, sleep=lambda s: None)
+        out = caller.call("SYS", "USER", _SCHEMA, "\nSUFFIX")
+        assert out == {"ok": 1}
+        assert len(client.calls) == 2
+        assert all("output_config" in c for c in client.calls)  # both structured
+        assert caller.use_structured is True  # transient — NOT a permanent downgrade
+
+    def test_grammar_timeout_falls_back_to_prompted(self):
+        # Persistent grammar timeout: exhaust retries, then one-off prompted fallback.
+        client = _CapturingClient(grammar_fail=99)
+        caller = StructuredCaller(
+            client=client, grammar_retries=2, grammar_backoff=0, sleep=lambda s: None
+        )
+        out = caller.call("SYS", "USER", _SCHEMA, "\nSUFFIX")
+        assert out == {"ok": 1}
+        # 3 structured attempts (initial + 2 retries) then 1 prompted fallback.
+        assert len(client.calls) == 4
+        assert all("output_config" in c for c in client.calls[:3])
+        assert "output_config" not in client.calls[3]
+        assert client.calls[3]["system"] == "SYS\nSUFFIX"
+        assert caller.use_structured is True  # structured stays on for the next variant
 
 
 @pytest.mark.live

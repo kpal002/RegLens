@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
 # Canonical default model for the whole reasoning layer. Opus 4.8 is the current
@@ -51,8 +52,21 @@ def is_structured_unsupported(exc: Exception) -> bool:
     """
     if isinstance(exc, TypeError):
         return True
+    if is_grammar_timeout(exc):
+        return False  # transient, not an unsupported format — handled separately
     blob = str(exc).lower()
     return any(k in blob for k in ("output_config", "json_schema", "output format", "format"))
+
+
+def is_grammar_timeout(exc: Exception) -> bool:
+    """Whether ``exc`` is a *transient* failure compiling the structured-output grammar.
+
+    The API compiles the ``json_schema`` into a grammar server-side; under load that
+    occasionally 400s with "Grammar compilation timed out" for a request that succeeded
+    moments earlier with the identical schema. Unlike an unsupported format, this is worth
+    retrying (and falling back to prompted JSON for the one call), not a permanent downgrade.
+    """
+    return "grammar" in str(exc).lower()
 
 
 def build_anthropic_client() -> Any:
@@ -87,6 +101,9 @@ class StructuredCaller:
         model: str = DEFAULT_MODEL,
         max_tokens: int = 8000,
         use_structured: bool = True,
+        grammar_retries: int = 2,
+        grammar_backoff: float = 2.0,
+        sleep: Any = time.sleep,
     ) -> None:
         """Initialize the caller.
 
@@ -95,11 +112,18 @@ class StructuredCaller:
             model: Anthropic model id.
             max_tokens: Output token ceiling (covers thinking + JSON).
             use_structured: Try ``output_config`` schema output first.
+            grammar_retries: Retries for a transient grammar-compilation timeout before
+                falling back to prompted JSON for that one call.
+            grammar_backoff: Base seconds between grammar-timeout retries (grows linearly).
+            sleep: Sleep function (injectable for tests).
         """
         self.client = client if client is not None else build_anthropic_client()
         self.model = model
         self.max_tokens = max_tokens
         self.use_structured = use_structured
+        self.grammar_retries = grammar_retries
+        self.grammar_backoff = grammar_backoff
+        self._sleep = sleep
 
     def call(
         self, system: str, user_content: str, schema: dict[str, Any], prompted_suffix: str
@@ -119,12 +143,27 @@ class StructuredCaller:
         messages = [{"role": "user", "content": user_content}]
         if self.use_structured:
             try:
-                return self._create(system, messages, schema=schema)
-            except Exception as exc:  # noqa: BLE001 - narrow via is_structured_unsupported
-                if not is_structured_unsupported(exc):
+                return self._create_structured(system, messages, schema)
+            except Exception as exc:  # noqa: BLE001 - narrowed below
+                if is_structured_unsupported(exc):
+                    self.use_structured = False  # permanent downgrade: format unsupported
+                elif not is_grammar_timeout(exc):
                     raise
-                self.use_structured = False  # remember the downgrade
+                # grammar timeout: one-off prompted fallback for this call, structured stays on
         return self._create(system + prompted_suffix, messages, schema=None)
+
+    def _create_structured(
+        self, system: str, messages: list[dict[str, Any]], schema: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Structured call, retrying a transient grammar-compilation timeout in place."""
+        for attempt in range(self.grammar_retries + 1):
+            try:
+                return self._create(system, messages, schema=schema)
+            except Exception as exc:  # noqa: BLE001
+                if is_grammar_timeout(exc) and attempt < self.grammar_retries:
+                    self._sleep(self.grammar_backoff * (attempt + 1))
+                    continue
+                raise
 
     def _create(
         self, system: str, messages: list[dict[str, Any]], schema: dict[str, Any] | None

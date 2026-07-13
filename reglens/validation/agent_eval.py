@@ -649,17 +649,24 @@ def run_calibration_benchmark(
     variants = variants if variants is not None else HEMATOPOIETIC_CALIBRATION
     outcomes: list[CalibrationOutcome] = []
     for i, cv in enumerate(variants, 1):
-        variant = resolve_variant(cv.rsid, client, prefer_alt=cv.alt)
-        bundle = analyze_variant(
-            variant, rsid=cv.rsid, celltype=cv.celltype or None,
-            genome_path=genome_path, scorer=scorer, client=client,
-        )
-        if hasattr(interpreter, "deliberate"):
-            result = interpreter.deliberate(bundle)
-            interp = result.interpretation
-        else:
-            result = None
-            interp = interpreter.interpret(bundle)
+        # Per-variant resilience: a transient resolve/tool/API error on one variant
+        # skips it rather than killing the whole run (mirrors the discovery screen).
+        try:
+            variant = resolve_variant(cv.rsid, client, prefer_alt=cv.alt)
+            bundle = analyze_variant(
+                variant, rsid=cv.rsid, celltype=cv.celltype or None,
+                genome_path=genome_path, scorer=scorer, client=client,
+            )
+            if hasattr(interpreter, "deliberate"):
+                result = interpreter.deliberate(bundle)
+                interp = result.interpretation
+            else:
+                result = None
+                interp = interpreter.interpret(bundle)
+        except Exception as exc:  # noqa: BLE001 - one bad variant shouldn't abort the run
+            if progress:
+                print(f"  [{i}/{len(variants)}] {cv.rsid} ({cv.gene}) SKIPPED ({exc})")
+            continue
         limbs = evidence_limbs(bundle, min_delta=min_delta, sig_alpha=sig_alpha)
         outcomes.append(CalibrationOutcome(
             rsid=cv.rsid, gene=cv.gene, variant=variant,
