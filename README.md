@@ -36,7 +36,7 @@ declines rather than manufacture a claim.
 | **Discovery** | Unbiased GWAS screen (100 variants) | 0 forced hits; guardrail caught a *solved* lead |
 
 Full numbers, transcripts, and caveats: **[`RESULTS.md`](RESULTS.md)**. Every experiment is
-reproducible on a GPU via **[`notebooks/`](notebooks/)**; the logic is covered by **214
+reproducible on a GPU via **[`notebooks/`](notebooks/)**; the logic is covered by **235
 offline tests**.
 
 ## The demo in one screen
@@ -107,7 +107,7 @@ not significant on the hepatic side (**+0.030, [−0.015, +0.069]**).
 ## Validation — the agent
 
 Most tool papers "validate" the reasoning layer with a couple of hand-picked examples. We
-measured it — four experiments, all in [`RESULTS.md`](RESULTS.md), reproducible in
+measured it — five experiments, all in [`RESULTS.md`](RESULTS.md), reproducible in
 [`notebooks/03`](notebooks/03_agent_null_control.ipynb) and
 [`04`](notebooks/04_agent_reasoning.ipynb).
 
@@ -128,6 +128,17 @@ measured it — four experiments, all in [`RESULTS.md`](RESULTS.md), reproducibl
   appears in **0%** of null and **0%** of weak-effect cases, **36%** of strong known
   mechanisms — and the lone `high` is reserved for the one variant where every channel,
   *including a cell-type-matched model*, concurs.
+- **The `high` regime holds up under scrutiny — and calibrates to *retrieved* evidence, not
+  priors.** MPRA strata cap at `medium` by construction (synthetic variants carry no
+  rsID/eQTL/GWAS/literature), so we probe `high` with a **corroboration ladder of 11 real
+  hematopoietic variants** (K562-lineage), each scored **3× — 33 draws**, confidence reported
+  as a *distribution*, not one noisy draw. Result: **0 `high` draws on any sub-full bundle
+  (0/30)** — `high` is never *even sampled* without full corroboration; the one
+  fully-corroborated variant (Duffy) reaches it 2/3 draws. Tellingly, the agent assigns
+  `low` to *textbook* loci (BCL11A, HBS1L-MYB) because the **bundle's own functional signal
+  is absent** — refusing to let background knowledge inflate confidence. Its own honest
+  bound: only 1/11 reaches full corroboration, because LD-tag GWAS SNPs don't fire the local
+  functional limbs — a populated `high` stratum needs fine-mapped causal variants.
 
 ## What it's for — prospective, falsifiable hypotheses
 
@@ -223,13 +234,13 @@ reglens/
   orchestrator.py · cli.py · genome.py · mcp_server.py
 notebooks/      01_engine_validation · 02_crossover · 03_agent_null_control · 04_agent_reasoning · 05_discovery_screen
 data/benchmarks/  Kircher MPRA benchmark (+ CADD)   figures/  money-shots   docs/  discovery notes
-tests/  (214, all offline)   RESULTS.md   RegLens_spec.md
+tests/  (235, all offline)   RESULTS.md   RegLens_spec.md
 ```
 
 ## Test
 
 ```bash
-pytest                       # 214 tests, fully offline (no network, no GPU, no API key)
+pytest                       # 235 tests, fully offline (no network, no GPU, no API key)
 ruff check reglens tests
 ```
 
